@@ -7,14 +7,14 @@ name = "ravenrag"
 version = "0.3.0"
 description = "Lightweight, local-first RAG for your documents"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0-or-later"}
 requires-python = ">=3.9"
 authors = [
     {name = "Erling Kristiansen", email = "egkristi@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",

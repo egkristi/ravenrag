@@ -277,7 +277,11 @@ uv run pytest tests/ -v --cov=ravenrag
 
 ## 📝 License
 
-MIT — see [LICENSE](LICENSE)
+Dual-licensed under **AGPLv3** and a **commercial license**.
+
+- Open source use: [AGPLv3](LICENSES/AGPLv3.txt)
+- Commercial use: [Commercial License](LICENSES/COMMERCIAL.txt)
+- Plain-English breakdown: [LICENSING.md](LICENSING.md)
 
 ---
 
