@@ -18,6 +18,15 @@ class TestContextFormatter:
         assert "What is RAG?" in output
         assert "doc.txt" in output
 
+    def test_format_includes_sources_section(self):
+        results = [
+            QueryResult(id="1", text="text", metadata={"source": "a.md", "chunk_index": 2}, distance=0.1),
+        ]
+        formatter = ContextFormatter()
+        output = formatter.format("q", results)
+        assert "Sources:" in output
+        assert "a.md#chunk2" in output
+
     def test_format_custom_template(self):
         results = [QueryResult(id="1", text="hello", metadata={}, distance=0.1)]
         formatter = ContextFormatter(template="Q: {query}\nA: {context}")

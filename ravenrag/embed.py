@@ -31,9 +31,19 @@ class Embedder:
 
     def _get_model(self):
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(self.model_name)
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError:
+                raise ImportError(
+                    "sentence-transformers is required. Install with: pip install sentence-transformers"
+                ) from None
+            try:
+                self._model = SentenceTransformer(self.model_name)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load embedding model '{self.model_name}': {e}. "
+                    "Check that the model name is valid and you have internet access for first download."
+                ) from e
         return self._model
 
     def encode(self, texts: List[str]) -> List[List[float]]:
@@ -73,10 +83,21 @@ class OllamaBackend:
         )
         try:
             with urllib.request.urlopen(req) as resp:  # noqa: S310
-                result = json.loads(resp.read())
-                return result["embeddings"]
+                body = resp.read()
+        except urllib.error.HTTPError as e:
+            raise ConnectionError(f"Ollama returned HTTP {e.code} for model '{self.model_name}': {e.reason}") from e
         except urllib.error.URLError as e:
             raise ConnectionError(f"Failed to connect to Ollama at {self.base_url}: {e}") from e
+
+        try:
+            result = json.loads(body)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Ollama returned invalid JSON: {e}") from e
+
+        if "embeddings" not in result:
+            raise ValueError(f"Ollama response missing 'embeddings' key. Got keys: {list(result.keys())}")
+
+        return result["embeddings"]
 
     def encode(self, texts: List[str]) -> List[List[float]]:
         """Encode texts via Ollama API."""

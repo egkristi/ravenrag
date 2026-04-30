@@ -23,9 +23,19 @@ class Reranker:
 
     def _get_model(self):
         if self._model is None:
-            from sentence_transformers import CrossEncoder
-
-            self._model = CrossEncoder(self.model_name)
+            try:
+                from sentence_transformers import CrossEncoder
+            except ImportError:
+                raise ImportError(
+                    "sentence-transformers is required for reranking. Install with: pip install sentence-transformers"
+                ) from None
+            try:
+                self._model = CrossEncoder(self.model_name)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load reranker model '{self.model_name}': {e}. "
+                    "Check that the model name is a valid cross-encoder."
+                ) from e
         return self._model
 
     def rerank(self, query: str, results: List[QueryResult], top_k: int = 5) -> List[QueryResult]:

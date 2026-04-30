@@ -28,6 +28,28 @@ class TestQueryResult:
         assert r.get("rerank_score") is None
         assert r.get("nonexistent", "default") == "default"
 
+    def test_dict_key_error(self):
+        r = QueryResult(id="1", text="hello", metadata={}, distance=0.5)
+        with pytest.raises(KeyError):
+            r["nonexistent_key"]
+
+    def test_citation_with_source(self):
+        r = QueryResult(id="1", text="text", metadata={"source": "docs/auth.md"}, distance=0.1)
+        assert r.citation == "docs/auth.md"
+
+    def test_citation_with_chunk(self):
+        r = QueryResult(
+            id="1",
+            text="text",
+            metadata={"source": "docs/auth.md", "chunk_index": 3},
+            distance=0.1,
+        )
+        assert r.citation == "docs/auth.md#chunk3"
+
+    def test_citation_fallback_to_id(self):
+        r = QueryResult(id="abc123def456", text="text", metadata={}, distance=0.1)
+        assert r.citation == "abc123def456"
+
 
 class TestDocument:
     def test_id_from_sha256(self):
@@ -97,6 +119,21 @@ class TestDocumentIndex:
         idx2 = DocumentIndex(persist_dir=self.temp_dir, collection_name="col2")
         assert idx1.store.collection.name == "col1"
         assert idx2.store.collection.name == "col2"
+
+    def test_query_empty_string_raises(self):
+        index = DocumentIndex(persist_dir=self.temp_dir)
+        with pytest.raises(ValueError, match="non-empty"):
+            index.query("")
+
+    def test_query_whitespace_only_raises(self):
+        index = DocumentIndex(persist_dir=self.temp_dir)
+        with pytest.raises(ValueError, match="non-empty"):
+            index.query("   ")
+
+    def test_query_negative_top_k_raises(self):
+        index = DocumentIndex(persist_dir=self.temp_dir)
+        with pytest.raises(ValueError, match="top_k"):
+            index.query("test", top_k=-1)
 
 
 @pytest.mark.integration

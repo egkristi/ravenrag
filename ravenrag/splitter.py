@@ -71,12 +71,19 @@ class TokenSplitter:
 
     def _get_tokenizer(self):
         if self._tokenizer is None:
-            from transformers import AutoTokenizer
-
+            try:
+                from transformers import AutoTokenizer
+            except ImportError:
+                raise ImportError(
+                    "transformers is required for TokenSplitter. Install with: pip install transformers"
+                ) from None
             try:
                 self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             except OSError:
-                self._tokenizer = AutoTokenizer.from_pretrained(f"sentence-transformers/{self.model_name}")
+                try:
+                    self._tokenizer = AutoTokenizer.from_pretrained(f"sentence-transformers/{self.model_name}")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to load tokenizer for '{self.model_name}': {e}") from e
         return self._tokenizer
 
     def split_text(self, text: str) -> List[str]:

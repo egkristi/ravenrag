@@ -33,3 +33,20 @@ class TestCLI:
         assert "watch" in result.output
         assert "info" in result.output
         assert "prompt" in result.output
+        assert "serve" in result.output
+
+    def test_query_has_hybrid_flag(self):
+        result = runner.invoke(app, ["query", "--help"])
+        assert "--hybrid" in result.output
+        assert "--rerank" in result.output
+        assert "--alpha" in result.output
+
+    def test_verbose_flag(self):
+        result = runner.invoke(app, ["info", "--help"])
+        assert "--verbose" in result.output
+
+    def test_serve_help(self):
+        result = runner.invoke(app, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "--host" in result.output
+        assert "--port" in result.output

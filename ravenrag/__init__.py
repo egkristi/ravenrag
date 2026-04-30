@@ -7,16 +7,21 @@ Local-first, composable retrieval-augmented generation:
 - Text and token-aware chunking
 - Hybrid search (vector + BM25)
 - Cross-encoder reranking
-- LLM context formatting
-- CLI and file watching
+- LLM context formatting with citations
+- CLI, file watching, and HTTP API server
+- Config file support (ravenrag.toml)
+- Plugin loader system for custom file types
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
+from .config import RavenConfig, load_config
 from .context import ContextFormatter
 from .embed import Embedder, EmbeddingBackend, OllamaBackend
+from .hybrid import HybridSearcher
 from .index import Document, DocumentIndex, QueryResult
-from .loaders import load_directory, load_text
+from .loaders import get_registered_extensions, load_directory, load_text, register_loader
+from .rerank import Reranker
 from .splitter import TextSplitter, TokenSplitter
 from .store import VectorStore
 
@@ -26,11 +31,17 @@ __all__ = [
     "DocumentIndex",
     "Embedder",
     "EmbeddingBackend",
+    "HybridSearcher",
     "OllamaBackend",
     "QueryResult",
+    "RavenConfig",
+    "Reranker",
     "TextSplitter",
     "TokenSplitter",
     "VectorStore",
+    "get_registered_extensions",
+    "load_config",
     "load_directory",
     "load_text",
+    "register_loader",
 ]

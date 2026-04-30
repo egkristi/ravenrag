@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from ravenrag.hybrid import HybridSearcher
 
 
@@ -61,6 +63,26 @@ class TestHybridSearcher:
         # With alpha=0.0, BM25 should dominate
         assert len(results) == 3
         assert results[0].id == "d1"  # Most keyword overlap
+
+    def test_invalid_alpha_raises(self):
+        store, embedder = self._make_store_and_embedder()
+        with pytest.raises(ValueError, match="alpha"):
+            HybridSearcher(store, embedder, alpha=1.5)
+        with pytest.raises(ValueError, match="alpha"):
+            HybridSearcher(store, embedder, alpha=-0.1)
+
+    def test_custom_rrf_k(self):
+        store, embedder = self._make_store_and_embedder()
+        searcher = HybridSearcher(store, embedder, rrf_k=10)
+        results = searcher.search("cat", top_k=2)
+        assert len(results) == 2
+
+    def test_distance_is_normalized(self):
+        store, embedder = self._make_store_and_embedder()
+        searcher = HybridSearcher(store, embedder)
+        results = searcher.search("cat", top_k=3)
+        for r in results:
+            assert 0.0 <= r.distance <= 1.0, f"Distance {r.distance} out of [0, 1] range"
 
     def test_missing_rank_bm25(self, monkeypatch):
         """Test that a clear error is raised when rank-bm25 is not installed."""

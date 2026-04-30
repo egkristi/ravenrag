@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --all-extras
 
       - name: Lint with ruff
         run: uv run ruff check ravenrag/ tests/
@@ -32,7 +32,7 @@ jobs:
         run: uv run ruff format --check ravenrag/ tests/
 
       - name: Run unit tests
-        run: uv run pytest tests/ -v --tb=short -m "not integration" --cov=ravenrag --cov-report=term-missing
+        run: uv run pytest tests/ -v --tb=short -m "not integration" --cov=ravenrag --cov-report=term-missing --cov-fail-under=75
 
       - name: Run integration tests
         run: uv run pytest tests/ -v --tb=short -m "integration"

@@ -25,9 +25,25 @@ class QueryResult:
     distance: float
     rerank_score: Optional[float] = None
 
+    @property
+    def citation(self) -> str:
+        """Return a human-readable source citation.
+
+        Uses metadata fields (source, filename, chunk_index) to build
+        a citation string like ``docs/auth.md#chunk3``.
+        """
+        source = self.metadata.get("source", self.metadata.get("filename", self.id[:12]))
+        chunk = self.metadata.get("chunk_index")
+        if chunk is not None:
+            return f"{source}#chunk{chunk}"
+        return str(source)
+
     def __getitem__(self, key: str) -> Any:
         """Dict-like access for backwards compatibility."""
-        return getattr(self, key)
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dict-like .get() for backwards compatibility."""
@@ -71,6 +87,7 @@ class DocumentIndex:
             self.embedder = Embedder(model_name=embedding_model)
         self.store = VectorStore(persist_dir=persist_dir, collection_name=collection_name)
         self.batch_size = batch_size
+        self._reranker = None
 
     def add(self, documents: List[Document]) -> None:
         """Index a list of documents (batched for large sets)."""
@@ -94,16 +111,22 @@ class DocumentIndex:
         rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ) -> List[QueryResult]:
         """Query the index. Optionally rerank results with a cross-encoder."""
+        if not query or not query.strip():
+            raise ValueError("Query must be a non-empty string")
+        if top_k < 1:
+            raise ValueError("top_k must be >= 1")
+
         query_embedding = self.embedder.encode([query])[0]
         fetch_k = top_k * 4 if rerank else top_k
         raw = self.store.search(query_embedding, top_k=fetch_k, where=where)
         results = [QueryResult(**r) for r in raw]
 
         if rerank and results:
-            from .rerank import Reranker
+            if self._reranker is None or self._reranker.model_name != rerank_model:
+                from .rerank import Reranker
 
-            reranker = Reranker(model_name=rerank_model)
-            results = reranker.rerank(query, results, top_k=top_k)
+                self._reranker = Reranker(model_name=rerank_model)
+            results = self._reranker.rerank(query, results, top_k=top_k)
 
         return results[:top_k]
 

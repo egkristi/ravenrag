@@ -20,6 +20,12 @@ class HybridSearcher:
     both vector similarity and BM25 keyword scores.
 
     Requires: ``pip install 'ravenrag[hybrid]'``
+
+    Args:
+        store: VectorStore instance.
+        embedder: Embedding backend.
+        alpha: Balance between vector (1.0) and BM25 (0.0). Must be 0.0-1.0.
+        rrf_k: RRF smoothing constant (default 60, standard value).
     """
 
     def __init__(
@@ -27,10 +33,14 @@ class HybridSearcher:
         store: VectorStore,
         embedder: EmbeddingBackend,
         alpha: float = 0.5,
+        rrf_k: int = 60,
     ):
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError("alpha must be between 0.0 and 1.0")
         self.store = store
         self.embedder = embedder
         self.alpha = alpha
+        self.rrf_k = rrf_k
 
     def search(
         self,
@@ -43,10 +53,10 @@ class HybridSearcher:
         Args:
             query: Search query.
             top_k: Number of results to return.
-            where: Optional metadata filter (applied to vector search only).
+            where: Optional metadata filter (applied to both vector and BM25).
 
         Returns:
-            List of QueryResult ranked by fused score.
+            List of QueryResult ranked by fused score (lower distance = better).
         """
         try:
             from rank_bm25 import BM25Okapi
@@ -64,12 +74,28 @@ class HybridSearcher:
         doc_texts = all_docs["documents"]
         doc_metadatas = all_docs.get("metadatas") or [{}] * len(doc_ids)
 
-        # BM25 scoring
-        tokenized = [text.lower().split() for text in doc_texts]
-        bm25 = BM25Okapi(tokenized)
-        bm25_scores = bm25.get_scores(query.lower().split())
+        # Apply where-filter to BM25 candidates too (consistency with vector search)
+        if where:
+            filtered = []
+            for i in range(len(doc_ids)):
+                meta = doc_metadatas[i] or {}
+                if all(meta.get(k) == v for k, v in where.items()):
+                    filtered.append(i)
+            bm25_doc_ids = [doc_ids[i] for i in filtered]
+            bm25_texts = [doc_texts[i] for i in filtered]
+        else:
+            bm25_doc_ids = doc_ids
+            bm25_texts = doc_texts
 
-        # Vector search (fetch more than needed for fusion)
+        # BM25 scoring on filtered set
+        if bm25_texts:
+            tokenized = [text.lower().split() for text in bm25_texts]
+            bm25 = BM25Okapi(tokenized)
+            bm25_scores = bm25.get_scores(query.lower().split())
+        else:
+            bm25_scores = []
+
+        # Vector search
         query_embedding = self.embedder.encode([query])[0]
         total = self.store.count()
         vector_results = self.store.search(
@@ -78,19 +104,16 @@ class HybridSearcher:
             where=where,
         )
 
-        # Reciprocal Rank Fusion (k=60 is standard)
-        rrf_k = 60
-
         # Vector RRF scores
         vector_rrf: Dict[str, float] = {}
         for rank, r in enumerate(vector_results):
-            vector_rrf[r["id"]] = 1.0 / (rrf_k + rank + 1)
+            vector_rrf[r["id"]] = 1.0 / (self.rrf_k + rank + 1)
 
         # BM25 RRF scores
         bm25_ranked = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)
         bm25_rrf: Dict[str, float] = {}
         for rank, idx in enumerate(bm25_ranked):
-            bm25_rrf[doc_ids[idx]] = 1.0 / (rrf_k + rank + 1)
+            bm25_rrf[bm25_doc_ids[idx]] = 1.0 / (self.rrf_k + rank + 1)
 
         # Fuse scores
         all_candidate_ids = set(vector_rrf.keys()) | set(bm25_rrf.keys())
@@ -103,7 +126,7 @@ class HybridSearcher:
 
         fused.sort(key=lambda x: x[1], reverse=True)
 
-        # Build result objects
+        # Build result objects — use 1-score as distance (0=perfect match)
         doc_map = {doc_ids[i]: (doc_texts[i], doc_metadatas[i] or {}) for i in range(len(doc_ids))}
         results = []
         for doc_id, score in fused[:top_k]:
@@ -113,7 +136,7 @@ class HybridSearcher:
                     id=doc_id,
                     text=text,
                     metadata=metadata,
-                    distance=1.0 / score if score > 0 else float("inf"),
+                    distance=1.0 - score,
                 )
             )
 

@@ -4,22 +4,24 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ravenrag"
-version = "0.3.0"
+version = "0.4.0"
 description = "Lightweight, local-first RAG for your documents"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "Erling Kristiansen", email = "egkristi@gmail.com"}
 ]
+keywords = ["rag", "retrieval-augmented-generation", "embeddings", "vector-search", "chromadb", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
 ]
 dependencies = [
     "chromadb>=0.5.0",
@@ -31,14 +33,17 @@ dependencies = [
 [project.optional-dependencies]
 hybrid = ["rank-bm25>=0.2.2"]
 watch = ["watchfiles>=0.20"]
-all = ["rank-bm25>=0.2.2", "watchfiles>=0.20"]
-dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.4.0", "rank-bm25>=0.2.2", "watchfiles>=0.20"]
+tokens = ["transformers>=4.20.0"]
+all = ["rank-bm25>=0.2.2", "watchfiles>=0.20", "transformers>=4.20.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.4.0", "rank-bm25>=0.2.2", "watchfiles>=0.20", "transformers>=4.20.0"]
 
 [project.scripts]
 raven = "ravenrag.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/egkristi/ravenrag"
+Repository = "https://github.com/egkristi/ravenrag"
+Issues = "https://github.com/egkristi/ravenrag/issues"
 
 [tool.pytest.ini_options]
 markers = [
