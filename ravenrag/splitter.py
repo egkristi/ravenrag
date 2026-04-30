@@ -215,7 +215,12 @@ class SemanticSplitter:
         merged: List[str] = []
         for chunk in final:
             if merged and len(merged[-1]) < self.min_chunk_size:
-                merged[-1] = merged[-1] + " " + chunk
+                combined = merged[-1] + " " + chunk
+                # Only merge if it won't exceed max_chunk_size
+                if len(combined) <= self.max_chunk_size:
+                    merged[-1] = combined
+                else:
+                    merged.append(chunk)
             else:
                 merged.append(chunk)
 

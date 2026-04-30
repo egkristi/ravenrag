@@ -61,6 +61,10 @@ class ServerConfig:
     api_key: str = ""
     cors_origin: str = ""
 
+    def __post_init__(self) -> None:
+        if not (0 <= self.port <= 65535):
+            raise ValueError(f"port must be 0-65535, got {self.port}")
+
 
 @dataclass
 class RavenConfig:
@@ -82,67 +86,18 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _parse_toml(path: Path) -> Dict:
-    """Parse a TOML file, supporting Python 3.9+ (tomllib) and fallback."""
+    """Parse a TOML file using tomllib (3.11+) or tomli fallback."""
     try:
         import tomllib
     except ModuleNotFoundError:
         try:
             import tomli as tomllib  # type: ignore[no-redef]
         except ImportError:
-            # Minimal TOML parser for simple key=value configs
-            return _parse_toml_minimal(path)
+            raise ImportError(
+                "tomli is required for TOML parsing on Python < 3.11. Install with: pip install tomli"
+            ) from None
 
     return tomllib.loads(path.read_text(encoding="utf-8"))
-
-
-def _parse_toml_minimal(path: Path) -> Dict:
-    """Minimal TOML parser for simple flat configs (fallback for Python 3.9-3.10)."""
-    result: Dict = {}
-    current_section = result
-    section_path: List[str] = []
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section_name = line[1:-1].strip()
-            section_path = section_name.split(".")
-            current_section = result
-            for part in section_path:
-                current_section = current_section.setdefault(part, {})
-            continue
-        if "=" in line:
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip()
-            # Parse value types
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-            elif value.lower() == "true":
-                value = True
-            elif value.lower() == "false":
-                value = False
-            elif value.startswith("[") and value.endswith("]"):
-                # Simple list parsing
-                inner = value[1:-1].strip()
-                if inner:
-                    value = [v.strip().strip("\"'") for v in inner.split(",")]
-                else:
-                    value = []
-            else:
-                try:
-                    value = int(value)
-                except ValueError:
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        pass
-            current_section[key] = value
-
-    return result
 
 
 def load_config(search_dir: Optional[str] = None) -> RavenConfig:

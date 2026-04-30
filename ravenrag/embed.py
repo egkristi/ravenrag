@@ -54,6 +54,8 @@ class Embedder:
 
     def encode_batched(self, texts: List[str], batch_size: int = 64) -> List[List[float]]:
         """Encode texts in batches to manage memory usage."""
+        if batch_size < 1:
+            raise ValueError("batch_size must be >= 1")
         model = self._get_model()
         all_embeddings: List[List[float]] = []
         for i in range(0, len(texts), batch_size):

@@ -393,3 +393,66 @@ def mcp(
         collection_name=collection or cfg.index.collection,
         embedding_model=model or cfg.index.model,
     )
+
+
+@app.command()
+def benchmark(
+    persist_dir: Optional[str] = _db_option,
+    collection: Optional[str] = _collection_option,
+    model: Optional[str] = _model_option,
+    queries: int = typer.Option(10, help="Number of queries to run"),
+    verbose: bool = _verbose_option,
+) -> None:
+    """Benchmark indexing speed, query latency, and cache performance."""
+    _setup_logging(verbose)
+    import time
+
+    from . import DocumentIndex
+    from .index import Document
+
+    cfg = _get_config()
+    db = persist_dir or cfg.index.persist_dir
+    col = collection or cfg.index.collection
+    mdl = model or cfg.index.model
+
+    typer.echo("🐦‍⬛ RavenRAG Benchmark\n")
+
+    idx = DocumentIndex(persist_dir=db, collection_name=col, embedding_model=mdl)
+    doc_count = idx.count()
+    typer.echo(f"  Index: {doc_count} documents in {db}")
+
+    if doc_count == 0:
+        # Create some test documents
+        typer.echo("  Creating 100 test documents...")
+        test_docs = [
+            Document(text=f"This is test document number {i} about topic {i % 10}.", metadata={"source": f"test_{i}"})
+            for i in range(100)
+        ]
+        t0 = time.perf_counter()
+        idx.add(test_docs)
+        index_time = time.perf_counter() - t0
+        typer.echo(f"  Indexing: {len(test_docs)} docs in {index_time:.2f}s ({len(test_docs) / index_time:.0f} docs/s)")
+        doc_count = idx.count()
+
+    # Query benchmark
+    test_queries = [f"test query number {i}" for i in range(queries)]
+
+    # Cold queries (no cache)
+    idx._embedding_cache.clear()
+    t0 = time.perf_counter()
+    for q in test_queries:
+        idx.query(q, top_k=5)
+    cold_time = time.perf_counter() - t0
+
+    # Warm queries (cached)
+    t0 = time.perf_counter()
+    for q in test_queries:
+        idx.query(q, top_k=5)
+    warm_time = time.perf_counter() - t0
+
+    typer.echo(f"\n  Query benchmark ({queries} queries):")
+    typer.echo(f"    Cold (no cache):  {cold_time:.3f}s total, {cold_time / queries * 1000:.1f}ms/query")
+    typer.echo(f"    Warm (cached):    {warm_time:.3f}s total, {warm_time / queries * 1000:.1f}ms/query")
+    speedup = cold_time / warm_time if warm_time > 0 else float("inf")
+    typer.echo(f"    Cache speedup:    {speedup:.1f}x")
+    typer.echo(f"    Cache stats:      {idx._embedding_cache.hits} hits, {idx._embedding_cache.misses} misses")

@@ -34,6 +34,7 @@ class VectorStoreBackend(Protocol):
     def delete(self, doc_id: str) -> None: ...
     def count(self) -> int: ...
     def get_all(self) -> Dict: ...
+    def get_by_ids(self, ids: List[str]) -> Dict: ...
     def clear(self) -> None: ...
 
 
@@ -106,6 +107,13 @@ class VectorStore:
     def get_all(self) -> Dict:
         """Retrieve all documents and their metadata."""
         result = self.collection.get(include=["documents", "metadatas"])
+        if result.get("metadatas"):
+            result["metadatas"] = [_strip_placeholder(m) for m in result["metadatas"]]
+        return result
+
+    def get_by_ids(self, ids: List[str]) -> Dict:
+        """Retrieve specific documents by their IDs."""
+        result = self.collection.get(ids=ids, include=["documents", "metadatas"])
         if result.get("metadatas"):
             result["metadatas"] = [_strip_placeholder(m) for m in result["metadatas"]]
         return result

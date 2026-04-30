@@ -81,6 +81,8 @@ class _RavenHandler(BaseHTTPRequestHandler):
             self._handle_stats()
         elif path == "/collections":
             self._handle_collections()
+        elif path == "/metrics":
+            self._handle_metrics()
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -124,6 +126,24 @@ class _RavenHandler(BaseHTTPRequestHandler):
                 "collections": [c.name for c in collections],
             }
         )
+
+    def _handle_metrics(self) -> None:
+        """Return timing and cache metrics (Prometheus-style text or JSON)."""
+        index = self.server.raven_index  # type: ignore[attr-defined]
+        from .timing import get_timings
+
+        metrics: Dict = {
+            "documents": index.count(),
+            "timings": get_timings(),
+        }
+        if hasattr(index, "_embedding_cache"):
+            cache = index._embedding_cache
+            metrics["cache"] = {
+                "size": cache.size,
+                "hits": cache.hits,
+                "misses": cache.misses,
+            }
+        self._send_json(metrics)
 
     def _handle_query(self, body: Dict) -> None:
         index = self.server.raven_index  # type: ignore[attr-defined]
@@ -237,6 +257,12 @@ def create_server(
 
     Returns:
         An HTTPServer ready to serve_forever().
+
+    .. warning::
+
+        This server does **not** support TLS. When using API key
+        authentication, run behind a TLS-terminating reverse proxy
+        (nginx, Caddy, etc.) to protect credentials in transit.
     """
     server = HTTPServer((host, port), _RavenHandler)
     server.raven_index = index  # type: ignore[attr-defined]

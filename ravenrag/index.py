@@ -17,6 +17,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular deps
+_EmbeddingCache = None
+
+
+def _get_cache_class():
+    global _EmbeddingCache
+    if _EmbeddingCache is None:
+        from .cache import EmbeddingCache
+
+        _EmbeddingCache = EmbeddingCache
+    return _EmbeddingCache
+
 
 @dataclass
 class QueryResult:
@@ -83,14 +95,21 @@ class DocumentIndex:
         embedding_backend: Optional["EmbeddingBackend"] = None,
         collection_name: str = "documents",
         batch_size: int = 64,
+        store: Optional[Any] = None,
+        cache_size: int = 1024,
     ):
         if embedding_backend is not None:
             self.embedder: EmbeddingBackend = embedding_backend
         else:
             self.embedder = Embedder(model_name=embedding_model)
-        self.store = VectorStore(persist_dir=persist_dir, collection_name=collection_name)
+        if store is not None:
+            self.store = store
+        else:
+            self.store = VectorStore(persist_dir=persist_dir, collection_name=collection_name)
         self.batch_size = batch_size
         self._reranker = None
+        CacheClass = _get_cache_class()
+        self._embedding_cache = CacheClass(maxsize=cache_size)
 
     def add(self, documents: List[Document]) -> None:
         """Index a list of documents (batched for large sets)."""
@@ -119,7 +138,7 @@ class DocumentIndex:
         if top_k < 1:
             raise ValueError("top_k must be >= 1")
 
-        query_embedding = self.embedder.encode([query])[0]
+        query_embedding = self._embedding_cache.get_or_compute([query], self.embedder.encode)[0]
         fetch_k = top_k * 4 if rerank else top_k
         raw = self.store.search(query_embedding, top_k=fetch_k, where=where)
         results = [QueryResult(**r) for r in raw]
@@ -194,25 +213,34 @@ class DocumentIndex:
             if parent_id not in seen or r.distance < seen[parent_id].distance:
                 seen[parent_id] = r
 
-        # Try to fetch full parent text from the store
+        # Try to fetch full parent text from the store (via protocol method)
+        parent_ids = list(seen.keys())
         parent_results: List[QueryResult] = []
+        try:
+            parent_data = self.store.get_by_ids(parent_ids)
+        except Exception:
+            logger.warning("Failed to fetch parent documents, falling back to chunks", exc_info=True)
+            parent_data = {"ids": [], "documents": [], "metadatas": []}
+
+        fetched = {}
+        for i, pid in enumerate(parent_data.get("ids") or []):
+            docs = parent_data.get("documents") or []
+            metas = parent_data.get("metadatas") or []
+            if i < len(docs) and docs[i]:
+                fetched[pid] = (docs[i], metas[i] if i < len(metas) else {})
+
         for parent_id, best_chunk in seen.items():
-            try:
-                parent_data = self.store.collection.get(ids=[parent_id], include=["documents", "metadatas"])
-                if parent_data["ids"] and parent_data["documents"]:
-                    parent_results.append(
-                        QueryResult(
-                            id=parent_id,
-                            text=parent_data["documents"][0],
-                            metadata=parent_data["metadatas"][0] if parent_data.get("metadatas") else {},
-                            distance=best_chunk.distance,
-                        )
+            if parent_id in fetched:
+                text, metadata = fetched[parent_id]
+                parent_results.append(
+                    QueryResult(
+                        id=parent_id,
+                        text=text,
+                        metadata=metadata or {},
+                        distance=best_chunk.distance,
                     )
-                else:
-                    # Parent not in store (was chunked before indexing), return chunk
-                    parent_results.append(best_chunk)
-            except Exception:
-                logger.warning("Failed to fetch parent %s, falling back to chunk", parent_id, exc_info=True)
+                )
+            else:
                 parent_results.append(best_chunk)
 
         parent_results.sort(key=lambda r: r.distance)
@@ -229,3 +257,99 @@ class DocumentIndex:
     def clear(self) -> None:
         """Delete all documents."""
         self.store.clear()
+
+    # ------------------------------------------------------------------
+    # Async API — wraps sync methods via asyncio.to_thread
+    # ------------------------------------------------------------------
+
+    async def aadd(self, documents: List[Document]) -> None:
+        """Async version of :meth:`add`."""
+        import asyncio
+
+        await asyncio.to_thread(self.add, documents)
+
+    async def aquery(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        rerank: bool = False,
+        rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    ) -> List[QueryResult]:
+        """Async version of :meth:`query`."""
+        import asyncio
+
+        return await asyncio.to_thread(self.query, query, top_k, where, rerank, rerank_model)
+
+    async def ahybrid_query(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        alpha: float = 0.5,
+    ) -> List[QueryResult]:
+        """Async version of :meth:`hybrid_query`."""
+        import asyncio
+
+        return await asyncio.to_thread(self.hybrid_query, query, top_k, where, alpha)
+
+    def query_stream(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        rerank: bool = False,
+    ):
+        """Generator that yields results one at a time.
+
+        Useful for streaming results to clients or processing
+        results incrementally.
+        """
+        results = self.query(query, top_k=top_k, where=where, rerank=rerank)
+        yield from results
+
+
+class MultiCollectionRouter:
+    """Search across multiple DocumentIndex instances.
+
+    Routes queries to all collections and merges results by distance.
+
+    Args:
+        indices: Dict mapping collection name to DocumentIndex.
+    """
+
+    def __init__(self, indices: Dict[str, "DocumentIndex"]):
+        if not indices:
+            raise ValueError("At least one index is required")
+        self.indices = indices
+
+    def query(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        collections: Optional[List[str]] = None,
+    ) -> List[QueryResult]:
+        """Query across multiple collections, merge by distance.
+
+        Args:
+            query: Search query.
+            top_k: Total results to return.
+            where: Metadata filter.
+            collections: Subset of collections to search. None = all.
+        """
+        all_results: List[QueryResult] = []
+        target = collections or list(self.indices.keys())
+
+        for name in target:
+            if name not in self.indices:
+                logger.warning("Collection '%s' not found, skipping", name)
+                continue
+            idx = self.indices[name]
+            results = idx.query(query, top_k=top_k, where=where)
+            for r in results:
+                r.metadata["_collection"] = name
+            all_results.extend(results)
+
+        all_results.sort(key=lambda r: r.distance)
+        return all_results[:top_k]

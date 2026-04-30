@@ -39,6 +39,13 @@ No cloud required. No API keys. Just local embeddings, persistent vector storage
 | 🔄 **Incremental indexing** | Skip unchanged files via fingerprints |
 | 💾 **Export/import** | JSONL backup and restore |
 | 🧩 **Plugin loaders** | `@register_loader(".pdf")` for custom file types |
+| 🔀 **Pipeline API** | Composable load → split → index → query pipeline |
+| ⚡ **Async support** | `aadd()`, `aquery()`, `ahybrid_query()` for async workflows |
+| 🗄️ **Alternative stores** | FAISS and SQLite vector stores (pluggable) |
+| 🧠 **Query cache** | Thread-safe LRU embedding cache for fast repeated queries |
+| ⏱️ **Observability** | `@timed` decorator, `/metrics` endpoint, `raven benchmark` CLI |
+| 🌊 **Streaming** | `query_stream()` yields results one at a time |
+| 🗂️ **Multi-collection** | `MultiCollectionRouter` queries across multiple indices |
 
 ---
 
@@ -90,6 +97,9 @@ raven watch ./docs --extensions ".md,.txt"
 raven export -o backup.jsonl
 raven import backup.jsonl
 
+# Benchmark indexing and query performance
+raven benchmark --num-docs 100
+
 # Diagnostics
 raven doctor
 
@@ -134,6 +144,9 @@ curl -X POST http://localhost:8484/index \
 
 # Health check
 curl http://localhost:8484/health
+
+# Metrics (timing, cache stats, document count)
+curl http://localhost:8484/metrics
 ```
 
 ---
@@ -379,28 +392,171 @@ def load_pdf(path, metadata=None):
 docs = load_directory("./docs", glob="**/*.*")
 ```
 
+### Built-in Loaders
+
+Install optional dependencies to enable built-in loaders:
+
+```bash
+pip install 'ravenrag[loaders]'
+```
+
+| Extension | Library | Notes |
+|-----------|---------|-------|
+| `.pdf` | pymupdf4llm | Extracts text as Markdown |
+| `.docx` | python-docx | Extracts paragraphs |
+| `.html` / `.htm` | beautifulsoup4 | Strips tags, extracts text |
+| `.md` / `.markdown` | built-in | Parses YAML frontmatter into metadata |
+
+All built-in loaders auto-register when their dependencies are available.
+
+---
+
+## 🔀 Pipeline API
+
+Compose a full load → split → index → query pipeline:
+
+```python
+from ravenrag import Pipeline, DocumentIndex, TextSplitter
+
+index = DocumentIndex(persist_dir="./my_db")
+pipeline = Pipeline(
+    index=index,
+    splitter=TextSplitter(chunk_size=512),
+    on_error="skip",  # "raise" or a custom callable
+)
+
+# Index a directory
+stats = pipeline.run("./docs")
+print(f"Indexed {stats['documents']} docs in {stats['chunks']} chunks")
+
+# Query
+results = pipeline.query("What is RAG?", top_k=5)
+
+# Stream results one at a time
+for result in pipeline.query_stream("embeddings"):
+    print(result.text)
+```
+
+---
+
+## ⚡ Async Support
+
+All core operations have async variants:
+
+```python
+import asyncio
+from ravenrag import DocumentIndex, Document
+
+async def main():
+    index = DocumentIndex(persist_dir="./db")
+    await index.aadd([Document("Async RAG is fast.")])
+    results = await index.aquery("async")
+    print(results)
+
+asyncio.run(main())
+```
+
+---
+
+## 🗄️ Alternative Vector Stores
+
+Swap the default ChromaDB backend for FAISS or SQLite:
+
+### FAISS
+
+```bash
+pip install 'ravenrag[faiss]'
+```
+
+```python
+from ravenrag.stores import FaissStore
+from ravenrag import DocumentIndex
+
+store = FaissStore(dim=384, persist_path="./faiss_index")
+index = DocumentIndex(persist_dir="./db", store=store)
+```
+
+### SQLite (zero-dependency)
+
+```python
+from ravenrag.stores import SqliteVecStore
+from ravenrag import DocumentIndex
+
+store = SqliteVecStore(dim=384, db_path="./vectors.db")
+index = DocumentIndex(persist_dir="./db", store=store)
+```
+
+---
+
+## 🗂️ Multi-Collection Router
+
+Query across multiple indices and merge results:
+
+```python
+from ravenrag import DocumentIndex, MultiCollectionRouter
+
+docs_index = DocumentIndex(persist_dir="./docs_db", collection="docs")
+code_index = DocumentIndex(persist_dir="./code_db", collection="code")
+
+router = MultiCollectionRouter({"docs": docs_index, "code": code_index})
+results = router.query("authentication", top_k=10)
+# Results are merged and sorted by distance; metadata includes _collection
+```
+
+---
+
+## ⏱️ Observability
+
+### Timing decorator
+
+```python
+from ravenrag import get_timings, reset_timings
+
+# After some queries...
+for name, stats in get_timings().items():
+    print(f"{name}: {stats['calls']} calls, {stats['total_seconds']:.3f}s")
+```
+
+### Metrics endpoint
+
+```bash
+curl http://localhost:8484/metrics
+# {"timings": {...}, "cache": {...}, "documents": 42}
+```
+
+### Benchmark CLI
+
+```bash
+raven benchmark --num-docs 100
+# Measures indexing speed, cold/warm query latency, cache hit rate
+```
+
 ---
 
 ## 📦 Architecture
 
 ```
 ravenrag/
-├── index.py        → DocumentIndex, Document, QueryResult, query_parent
+├── index.py        → DocumentIndex, MultiCollectionRouter, query_parent
 ├── store.py        → VectorStore, VectorStoreBackend protocol
+├── stores/         → Alternative backends (FaissStore, SqliteVecStore)
 ├── embed.py        → EmbeddingBackend, Embedder, Ollama/OpenAI/vLLM backends
 ├── splitter.py     → TextSplitter, TokenSplitter, SemanticSplitter
-├── loaders.py      → load_text, load_directory, register_loader
+├── loaders.py      → load_text, load_directory, register_loader, built-in loaders
 ├── rerank.py       → Reranker (cross-encoder)
 ├── hybrid.py       → HybridSearcher (BM25 + vector fusion)
 ├── context.py      → ContextFormatter (LLM prompt builder)
 ├── config.py       → RavenConfig, load_config (TOML + env vars)
-├── server.py       → HTTP API server (auth, CORS, size limits)
+├── server.py       → HTTP API server (auth, CORS, /metrics)
 ├── mcp_server.py   → MCP stdio server (for AI assistants)
 ├── watcher.py      → watch_directory (debounce, delete support)
 ├── fingerprint.py  → FingerprintStore (incremental re-indexing)
 ├── eval.py         → evaluate (MRR, NDCG, Recall)
 ├── export.py       → export_index, import_index (JSONL)
-└── cli.py          → CLI (raven command)
+├── pipeline.py     → Pipeline (composable load → split → index → query)
+├── cache.py        → EmbeddingCache (thread-safe LRU)
+├── timing.py       → @timed decorator, get_timings, reset_timings
+└── cli.py          → CLI (raven command, benchmark)
 ```
 
 ---
@@ -419,6 +575,12 @@ pip install 'ravenrag[watch]'
 
 # With token-aware splitting
 pip install 'ravenrag[tokens]'
+
+# With FAISS backend
+pip install 'ravenrag[faiss]'
+
+# With built-in file loaders (PDF, DOCX, HTML)
+pip install 'ravenrag[loaders]'
 
 # Everything
 pip install 'ravenrag[all]'
@@ -477,15 +639,42 @@ uv run pytest tests/ -v --cov=ravenrag
 - [x] Incremental re-indexing (fingerprints)
 - [x] Export/import (JSONL)
 - [x] VectorStoreBackend protocol
-- [ ] Async support
+- [x] Async support (`aadd`, `aquery`, `ahybrid_query`)
+- [x] PDF / DOCX / HTML loaders (built-in)
+- [x] Streaming query results (`query_stream`)
+- [x] Pipeline API (composable load → split → index → query)
+- [x] Alternative vector stores (FAISS, SQLite)
+- [x] Query embedding cache (thread-safe LRU)
+- [x] Multi-collection routing
+- [x] Observability (`@timed`, `/metrics`, `raven benchmark`)
 - [ ] Knowledge graph retrieval
-- [ ] PDF / DOCX loaders (built-in)
-- [ ] Streaming query results
 - [ ] OpenAPI schema for server
 
 ---
 
-## 📝 License
+## � Security
+
+- **TLS**: The built-in server does not terminate TLS. Use a reverse proxy (nginx, Caddy) for HTTPS in production.
+- **Symlink protection**: `load_directory()` skips symlinks pointing outside the target directory.
+- **Input validation**: Port numbers, batch sizes, and chunk parameters are validated at construction time.
+- **Auth**: API server supports Bearer token authentication via `RAVENRAG_API_KEY`.
+
+---
+
+## 🔧 Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `ImportError: tomli` | Install `tomli` or upgrade to Python 3.11+ |
+| Slow first query | Model downloads on first use. Subsequent queries use cache. |
+| `No loaders for .pdf` | `pip install 'ravenrag[loaders]'` |
+| FAISS not found | `pip install 'ravenrag[faiss]'` |
+| Port already in use | Change port: `raven serve --port 9090` |
+| `raven doctor` shows issues | Follow the printed recommendations |
+
+---
+
+## �📝 License
 
 Dual-licensed under **AGPLv3** and a **commercial license**.
 

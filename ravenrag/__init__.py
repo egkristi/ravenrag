@@ -17,18 +17,21 @@ Local-first, composable retrieval-augmented generation:
 - Export/import (JSONL backup/restore)
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
+from .cache import EmbeddingCache
 from .config import RavenConfig, load_config
 from .context import ContextFormatter
 from .embed import Embedder, EmbeddingBackend, OllamaBackend, OpenAIBackend, VLLMBackend
 from .eval import EvalResult, evaluate
 from .hybrid import HybridSearcher
-from .index import Document, DocumentIndex, QueryResult
+from .index import Document, DocumentIndex, MultiCollectionRouter, QueryResult
 from .loaders import get_registered_extensions, load_directory, load_text, register_loader
+from .pipeline import Pipeline
 from .rerank import Reranker
 from .splitter import SemanticSplitter, TextSplitter, TokenSplitter
 from .store import VectorStore, VectorStoreBackend
+from .timing import get_timings, reset_timings, timed
 
 __all__ = [
     "ContextFormatter",
@@ -36,10 +39,13 @@ __all__ = [
     "DocumentIndex",
     "Embedder",
     "EmbeddingBackend",
+    "EmbeddingCache",
     "EvalResult",
     "HybridSearcher",
+    "MultiCollectionRouter",
     "OllamaBackend",
     "OpenAIBackend",
+    "Pipeline",
     "QueryResult",
     "RavenConfig",
     "Reranker",
@@ -51,8 +57,11 @@ __all__ = [
     "VectorStoreBackend",
     "evaluate",
     "get_registered_extensions",
+    "get_timings",
     "load_config",
     "load_directory",
     "load_text",
     "register_loader",
+    "reset_timings",
+    "timed",
 ]

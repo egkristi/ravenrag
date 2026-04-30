@@ -83,11 +83,12 @@ def load_directory(
         if not file_path.is_file():
             continue
 
-        # Path traversal protection: ensure file is within target directory
+        # Path traversal protection: resolve symlinks and ensure within target
+        resolved = file_path.resolve()
         try:
-            file_path.resolve().relative_to(dir_path)
+            resolved.relative_to(dir_path)
         except ValueError:
-            logger.warning("Skipping %s: outside target directory", file_path)
+            logger.warning("Skipping %s: outside target directory (symlink?)", file_path)
             continue
 
         # Check for registered plugin loader
@@ -118,3 +119,99 @@ def load_directory(
         documents.append(Document(text=text, metadata=doc_metadata))
 
     return documents
+
+
+# ---------------------------------------------------------------------------
+# Built-in file loaders (optional dependencies)
+# ---------------------------------------------------------------------------
+
+
+def _try_register_builtin_loaders() -> None:
+    """Auto-register loaders for PDF, DOCX, HTML, and Markdown if deps are available."""
+
+    # PDF via pymupdf4llm
+    try:
+        import pymupdf4llm  # noqa: F401
+
+        @register_loader(".pdf")
+        def _load_pdf(path: str, metadata: Optional[Dict] = None) -> Document:
+            text = pymupdf4llm.to_markdown(path)
+            file_path = Path(path).resolve()
+            doc_metadata = {"source": str(file_path), "filename": file_path.name, "extension": ".pdf"}
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text=text, metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
+    # DOCX via python-docx
+    try:
+        import docx as _docx  # noqa: F401
+
+        @register_loader(".docx")
+        def _load_docx(path: str, metadata: Optional[Dict] = None) -> Document:
+            doc = _docx.Document(path)
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            text = "\n\n".join(paragraphs)
+            file_path = Path(path).resolve()
+            doc_metadata = {"source": str(file_path), "filename": file_path.name, "extension": ".docx"}
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text=text, metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
+    # HTML via beautifulsoup4
+    try:
+        from bs4 import BeautifulSoup  # noqa: F401
+
+        @register_loader(".html")
+        @register_loader(".htm")
+        def _load_html(path: str, metadata: Optional[Dict] = None) -> Document:
+            file_path = Path(path).resolve()
+            raw = file_path.read_text(encoding="utf-8")
+            soup = BeautifulSoup(raw, "html.parser")
+            # Remove script and style elements
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+            doc_metadata = {"source": str(file_path), "filename": file_path.name, "extension": file_path.suffix}
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text=text, metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
+    # Markdown with frontmatter parsing (no extra deps)
+    @register_loader(".md")
+    @register_loader(".markdown")
+    def _load_markdown(path: str, metadata: Optional[Dict] = None) -> Document:
+        file_path = Path(path).resolve()
+        raw = file_path.read_text(encoding="utf-8")
+        doc_metadata: Dict = {"source": str(file_path), "filename": file_path.name, "extension": ".md"}
+
+        # Parse YAML frontmatter
+        if raw.startswith("---"):
+            parts = raw.split("---", 2)
+            if len(parts) >= 3:
+                frontmatter_text = parts[1].strip()
+                raw = parts[2].strip()
+                # Simple YAML key: value parsing (no dependency)
+                for line in frontmatter_text.splitlines():
+                    if ":" in line:
+                        key, _, value = line.partition(":")
+                        key = key.strip()
+                        value = value.strip().strip("\"'")
+                        if key and value:
+                            doc_metadata[key] = value
+
+        if metadata:
+            doc_metadata.update(metadata)
+        return Document(text=raw, metadata=doc_metadata)
+
+
+# Auto-register on import
+_try_register_builtin_loaders()
