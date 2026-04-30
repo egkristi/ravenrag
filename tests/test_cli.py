@@ -1,5 +1,9 @@
 """Tests for CLI."""
 
+import os
+
+os.environ["NO_COLOR"] = "1"
+
 from typer.testing import CliRunner
 
 from ravenrag.cli import app
