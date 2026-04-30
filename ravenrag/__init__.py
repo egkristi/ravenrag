@@ -8,10 +8,20 @@ Inspired by LlamaIndex but focused on:
 - Persistent vector storage with ChromaDB
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-from .index import DocumentIndex
-from .store import VectorStore
 from .embed import Embedder
+from .index import Document, DocumentIndex
+from .loaders import load_directory, load_text
+from .splitter import TextSplitter
+from .store import VectorStore
 
-__all__ = ["DocumentIndex", "VectorStore", "Embedder"]
+__all__ = [
+    "Document",
+    "DocumentIndex",
+    "VectorStore",
+    "Embedder",
+    "TextSplitter",
+    "load_text",
+    "load_directory",
+]

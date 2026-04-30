@@ -17,6 +17,9 @@ No cloud required. No API keys. Just local embeddings, persistent vector storage
 | 💾 **Persistent** | Vector store survives restarts |
 | 🔍 **Semantic search** | Built on sentence-transformers embeddings |
 | 🧩 **Composable** | Mix and match index, store, and embedder |
+| ✂️ **Chunking** | Built-in text splitter with overlapping chunks |
+| 📂 **File loaders** | Load .txt, .md, .py and more from disk |
+| 🏷️ **Metadata filtering** | Filter search results by metadata |
 
 ---
 
@@ -46,10 +49,53 @@ for r in results:
     print(f"Score: {r['distance']:.4f} | {r['text']}")
 ```
 
-Output:
+---
+
+## ✂️ Chunking Long Documents
+
+```python
+from ravenrag import DocumentIndex, Document, TextSplitter
+
+splitter = TextSplitter(chunk_size=512, chunk_overlap=64)
+
+docs = [Document("Very long document text..." * 100)]
+chunked = splitter.split_documents(docs)
+
+index = DocumentIndex(persist_dir="./chunked_db")
+index.add(chunked)
 ```
-Score: 0.2341 | RAG stands for Retrieval-Augmented Generation.
-Score: 0.4567 | ChromaDB is a vector database for embeddings.
+
+---
+
+## 📂 Loading Files from Disk
+
+```python
+from ravenrag import load_text, load_directory, DocumentIndex, TextSplitter
+
+# Single file
+doc = load_text("notes.md")
+
+# Entire directory (recursive)
+docs = load_directory("./my_docs", glob="**/*.md")
+
+# Combine with chunking
+splitter = TextSplitter(chunk_size=512, chunk_overlap=64)
+chunked = splitter.split_documents(docs)
+
+index = DocumentIndex(persist_dir="./my_index")
+index.add(chunked)
+```
+
+---
+
+## 🏷️ Metadata Filtering
+
+```python
+results = index.query(
+    "machine learning",
+    top_k=5,
+    where={"source": "research_papers"}
+)
 ```
 
 ---
@@ -58,9 +104,11 @@ Score: 0.4567 | ChromaDB is a vector database for embeddings.
 
 ```
 ravenrag/
-├── index.py   → DocumentIndex (high-level API)
-├── store.py   → VectorStore (ChromaDB wrapper)
-└── embed.py   → Embedder (sentence-transformers wrapper)
+├── index.py    → DocumentIndex + Document (high-level API)
+├── store.py    → VectorStore (ChromaDB wrapper)
+├── embed.py    → Embedder (sentence-transformers wrapper)
+├── splitter.py → TextSplitter (chunking)
+└── loaders.py  → File loaders (text, directory)
 ```
 
 Each component can be used independently:
@@ -80,31 +128,46 @@ store.upsert([doc], embeddings)
 
 ## 🛠️ Installation
 
-### From source
+### From source (uv)
 
 ```bash
 git clone https://github.com/egkristi/ravenrag.git
 cd ravenrag
-pip install -e ".[dev]"
+uv sync --dev
 ```
+
+### From source (pip)
+
+```bash
+pip install -e ".[dev]"
 
 ---
 
 ## 🧪 Tests
 
 ```bash
-pytest tests/
+# Fast unit tests (mocked, no model download)
+uv run pytest tests/ -m "not integration"
+
+# Full integration tests (downloads model on first run)
+uv run pytest tests/ -m "integration"
+
+# All tests
+uv run pytest tests/ -v
 ```
 
 ---
 
 ## 🗺️ Roadmap
 
+- [x] Document chunking strategies
+- [x] File loaders
+- [x] Metadata filtering
 - [ ] Async support
 - [ ] Streaming query results
 - [ ] Multiple embedding backends (ONNX, Ollama)
-- [ ] Document chunking strategies
 - [ ] Hybrid search (BM25 + vector)
+- [ ] PDF / DOCX loaders
 
 ---
 

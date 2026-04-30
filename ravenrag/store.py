@@ -2,10 +2,15 @@
 VectorStore: ChromaDB-backed persistent vector storage.
 """
 
+from __future__ import annotations
+
 import os
-from typing import List, Dict
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 import chromadb
-from chromadb.config import Settings
+
+if TYPE_CHECKING:
+    from .index import Document
 
 
 class VectorStore:
@@ -13,38 +18,57 @@ class VectorStore:
 
     def __init__(self, persist_dir: str = "./ravenrag_db", collection_name: str = "documents"):
         os.makedirs(persist_dir, exist_ok=True)
-        self.client = chromadb.Client(
-            Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_dir)
-        )
+        self.client = chromadb.PersistentClient(path=persist_dir)
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
-    def upsert(self, documents: List, embeddings: List[List[float]]) -> None:
+    def upsert(self, documents: List["Document"], embeddings: List[List[float]]) -> None:
         """Add or update documents with their embeddings."""
         ids = [doc.id for doc in documents]
         texts = [doc.text for doc in documents]
-        metadatas = [doc.metadata for doc in documents]
-        self.collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=texts,
-            metadatas=metadatas,
-        )
+        metadatas = [doc.metadata if doc.metadata else None for doc in documents]
+        # ChromaDB rejects empty dicts; pass None to omit metadata
+        has_metadata = any(m is not None for m in metadatas)
 
-    def search(self, query_embedding: List[float], top_k: int = 5) -> List[Dict]:
-        """Find the most similar documents."""
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-        )
+        kwargs: Dict = {
+            "ids": ids,
+            "embeddings": embeddings,
+            "documents": texts,
+        }
+        if has_metadata:
+            kwargs["metadatas"] = [m or {} for m in metadatas]
+
+        self.collection.upsert(**kwargs)
+
+    def search(
+        self,
+        query_embedding: List[float],
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+    ) -> List[Dict]:
+        """Find the most similar documents, optionally filtered by metadata."""
+        total = self.collection.count()
+        if total == 0:
+            return []
+
+        kwargs: Dict = {
+            "query_embeddings": [query_embedding],
+            "n_results": min(top_k, total),
+        }
+        if where:
+            kwargs["where"] = where
+
+        results = self.collection.query(**kwargs)
         # Flatten results
         output = []
         for i in range(len(results["ids"][0])):
-            output.append({
-                "id": results["ids"][0][i],
-                "text": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i],
-                "distance": results["distances"][0][i],
-            })
+            output.append(
+                {
+                    "id": results["ids"][0][i],
+                    "text": results["documents"][0][i],
+                    "metadata": results["metadatas"][0][i],
+                    "distance": results["distances"][0][i],
+                }
+            )
         return output
 
     def delete(self, doc_id: str) -> None:
