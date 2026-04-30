@@ -3,7 +3,7 @@ RavenRAG — Lightweight RAG for local documents.
 
 Local-first, composable retrieval-augmented generation:
 - Persistent vector storage with ChromaDB
-- Multiple embedding backends (sentence-transformers, Ollama)
+- Multiple embedding backends (sentence-transformers, Ollama, OpenAI-compatible, vLLM)
 - Text and token-aware chunking
 - Hybrid search (vector + BM25)
 - Cross-encoder reranking
@@ -17,7 +17,7 @@ __version__ = "0.4.0"
 
 from .config import RavenConfig, load_config
 from .context import ContextFormatter
-from .embed import Embedder, EmbeddingBackend, OllamaBackend
+from .embed import Embedder, EmbeddingBackend, OllamaBackend, OpenAIBackend, VLLMBackend
 from .hybrid import HybridSearcher
 from .index import Document, DocumentIndex, QueryResult
 from .loaders import get_registered_extensions, load_directory, load_text, register_loader
@@ -33,6 +33,7 @@ __all__ = [
     "EmbeddingBackend",
     "HybridSearcher",
     "OllamaBackend",
+    "OpenAIBackend",
     "QueryResult",
     "RavenConfig",
     "Reranker",
@@ -40,6 +41,7 @@ __all__ = [
     "TokenSplitter",
     "VectorStore",
     "get_registered_extensions",
+    "VLLMBackend",
     "load_config",
     "load_directory",
     "load_text",

@@ -26,7 +26,7 @@ No cloud required. No API keys. Just local embeddings, persistent vector storage
 | 📌 **Citations** | Full provenance: source file + chunk reference |
 | 🖥️ **CLI** | `raven index`, `raven query`, `raven serve`, `raven watch` |
 | 🌐 **API server** | Built-in HTTP server (`raven serve`) — RAG sidecar |
-| 🔌 **Pluggable backends** | sentence-transformers, Ollama, or your own |
+| 🔌 **Pluggable backends** | sentence-transformers, Ollama, vLLM, OpenAI-compatible, or your own |
 | 👁️ **Watch mode** | Auto-reindex on file changes |
 | ⚙️ **Config file** | `ravenrag.toml` or `pyproject.toml [tool.ravenrag]` |
 | 🧩 **Plugin loaders** | `@register_loader(".pdf")` for custom file types |
@@ -234,7 +234,15 @@ results = index.query("machine learning", where={"source": "papers"})
 
 ---
 
-## 🔌 Custom Embedding Backends
+## 🔌 Embedding Backends
+
+### sentence-transformers (default)
+
+```python
+from ravenrag import DocumentIndex, Embedder
+
+index = DocumentIndex(persist_dir="./db", embedding_backend=Embedder("all-MiniLM-L6-v2"))
+```
 
 ### Ollama (local)
 
@@ -242,6 +250,37 @@ results = index.query("machine learning", where={"source": "papers"})
 from ravenrag import DocumentIndex, OllamaBackend
 
 backend = OllamaBackend(model_name="nomic-embed-text")
+index = DocumentIndex(persist_dir="./db", embedding_backend=backend)
+```
+
+### vLLM
+
+```bash
+vllm serve BAAI/bge-base-en-v1.5 --task embed
+```
+
+```python
+from ravenrag import DocumentIndex, VLLMBackend
+
+backend = VLLMBackend("BAAI/bge-base-en-v1.5")  # localhost:8000 by default
+index = DocumentIndex(persist_dir="./db", embedding_backend=backend)
+```
+
+### OpenAI-compatible (LM Studio, LocalAI, TGI, Xinference, OpenAI, …)
+
+```python
+from ravenrag import DocumentIndex, OpenAIBackend
+
+# LM Studio
+backend = OpenAIBackend(model_name="nomic-embed-text-v1.5", base_url="http://localhost:1234/v1")
+
+# OpenAI cloud
+backend = OpenAIBackend(
+    model_name="text-embedding-3-small",
+    base_url="https://api.openai.com/v1",
+    api_key="sk-...",
+)
+
 index = DocumentIndex(persist_dir="./db", embedding_backend=backend)
 ```
 
@@ -375,7 +414,7 @@ uv run pytest tests/ -v --cov=ravenrag
 - [x] LLM context formatting with citations
 - [x] CLI tool
 - [x] Watch mode
-- [x] Pluggable embedding backends (Ollama, custom)
+- [x] Pluggable embedding backends (Ollama, vLLM, OpenAI-compatible, custom)
 - [x] Named collections
 - [x] Config file support (ravenrag.toml)
 - [x] Built-in API server (raven serve)
