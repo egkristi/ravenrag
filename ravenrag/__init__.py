@@ -1,27 +1,36 @@
 """
 RavenRAG — Lightweight RAG for local documents.
 
-Inspired by LlamaIndex but focused on:
-- Local-first (no cloud dependencies)
-- Minimal footprint
-- Easy embedding + retrieval
+Local-first, composable retrieval-augmented generation:
 - Persistent vector storage with ChromaDB
+- Multiple embedding backends (sentence-transformers, Ollama)
+- Text and token-aware chunking
+- Hybrid search (vector + BM25)
+- Cross-encoder reranking
+- LLM context formatting
+- CLI and file watching
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
-from .embed import Embedder
-from .index import Document, DocumentIndex
+from .context import ContextFormatter
+from .embed import Embedder, EmbeddingBackend, OllamaBackend
+from .index import Document, DocumentIndex, QueryResult
 from .loaders import load_directory, load_text
-from .splitter import TextSplitter
+from .splitter import TextSplitter, TokenSplitter
 from .store import VectorStore
 
 __all__ = [
+    "ContextFormatter",
     "Document",
     "DocumentIndex",
-    "VectorStore",
     "Embedder",
+    "EmbeddingBackend",
+    "OllamaBackend",
+    "QueryResult",
     "TextSplitter",
-    "load_text",
+    "TokenSplitter",
+    "VectorStore",
     "load_directory",
+    "load_text",
 ]

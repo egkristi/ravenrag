@@ -12,6 +12,15 @@ import chromadb
 if TYPE_CHECKING:
     from .index import Document
 
+_PLACEHOLDER_METADATA = {"_ravenrag_placeholder": True}
+
+
+def _strip_placeholder(metadata: Optional[Dict]) -> Dict:
+    """Remove placeholder metadata used for ChromaDB compatibility."""
+    if metadata == _PLACEHOLDER_METADATA:
+        return {}
+    return metadata or {}
+
 
 class VectorStore:
     """Wraps ChromaDB for document storage and similarity search."""
@@ -35,7 +44,7 @@ class VectorStore:
             "documents": texts,
         }
         if has_metadata:
-            kwargs["metadatas"] = [m or {} for m in metadatas]
+            kwargs["metadatas"] = [m if m else _PLACEHOLDER_METADATA for m in metadatas]
 
         self.collection.upsert(**kwargs)
 
@@ -65,7 +74,7 @@ class VectorStore:
                 {
                     "id": results["ids"][0][i],
                     "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
+                    "metadata": _strip_placeholder(results["metadatas"][0][i]),
                     "distance": results["distances"][0][i],
                 }
             )
@@ -78,6 +87,13 @@ class VectorStore:
     def count(self) -> int:
         """Return total document count."""
         return self.collection.count()
+
+    def get_all(self) -> Dict:
+        """Retrieve all documents and their metadata."""
+        result = self.collection.get(include=["documents", "metadatas"])
+        if result.get("metadatas"):
+            result["metadatas"] = [_strip_placeholder(m) for m in result["metadatas"]]
+        return result
 
     def clear(self) -> None:
         """Delete all documents in the collection."""

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def load_text(path: str, metadata: Optional[Dict] = None) -> Document:
     """Load a single text file as a Document."""
-    file_path = Path(path)
+    file_path = Path(path).resolve()
     if not file_path.is_file():
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -34,7 +34,7 @@ def load_directory(
 
     Supports: .txt, .md, .py, .json, .csv, .html, .xml, .yaml, .yml, .toml
     """
-    dir_path = Path(path)
+    dir_path = Path(path).resolve()
     if not dir_path.is_dir():
         raise NotADirectoryError(f"Not a directory: {path}")
 
@@ -57,5 +57,7 @@ def load_directory(
             doc_metadata.update(metadata)
 
         documents.append(Document(text=text, metadata=doc_metadata))
+
+    return documents
 
     return documents

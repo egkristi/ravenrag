@@ -2,14 +2,14 @@
 Basic usage example for RavenRAG.
 """
 
-from ravenrag import DocumentIndex, Document, TextSplitter, load_directory
+from ravenrag import DocumentIndex, Document, TextSplitter
 
 
 def main():
-    # Create a local index
-    index = DocumentIndex(persist_dir="./example_db")
+    # Create a local index with a named collection
+    index = DocumentIndex(persist_dir="./example_db", collection_name="demo")
 
-    # --- Manual documents with metadata ---
+    # Index documents with metadata
     documents = [
         Document(
             "RAG (Retrieval-Augmented Generation) combines retrieval with generation to produce more accurate answers.",
@@ -33,7 +33,7 @@ def main():
     index.add(documents)
     print(f"Total indexed: {index.count()}")
 
-    # --- Query ---
+    # --- Semantic search ---
     queries = [
         "What is RAG?",
         "Tell me about vector databases",
@@ -44,19 +44,24 @@ def main():
         print(f"\n🔍 Query: {q}")
         results = index.query(q, top_k=2)
         for i, r in enumerate(results, 1):
-            print(f"  {i}. [{r['distance']:.4f}] {r['text'][:80]}...")
+            print(f"  {i}. [{r.distance:.4f}] {r.text[:80]}...")
 
     # --- Metadata filtering ---
     print("\n🏷️  Filtering by topic='ai':")
     results = index.query("tell me something", top_k=2, where={"topic": "ai"})
     for r in results:
-        print(f"  [{r['distance']:.4f}] {r['text'][:80]}...")
+        print(f"  [{r.distance:.4f}] {r.text[:80]}...")
 
-    # --- Chunking example ---
+    # --- Chunking ---
     splitter = TextSplitter(chunk_size=100, chunk_overlap=20)
     long_doc = Document("This is a very long document. " * 20, metadata={"source": "demo"})
     chunks = splitter.split_documents([long_doc])
     print(f"\n✂️  Split 1 document into {len(chunks)} chunks")
+
+    # --- Context formatting for LLMs ---
+    print("\n💬 LLM Prompt:")
+    prompt = index.query_for_prompt("What is RAG?", top_k=2)
+    print(prompt)
 
     print(f"\n✅ Done. Database persisted to ./example_db")
 

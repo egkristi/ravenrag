@@ -1,9 +1,11 @@
-"""Tests for TextSplitter."""
+"""Tests for TextSplitter and TokenSplitter."""
+
+from unittest.mock import MagicMock
 
 import pytest
 
 from ravenrag import Document
-from ravenrag.splitter import TextSplitter
+from ravenrag.splitter import TextSplitter, TokenSplitter
 
 
 class TestTextSplitter:
@@ -41,3 +43,38 @@ class TestTextSplitter:
     def test_invalid_overlap_raises(self):
         with pytest.raises(ValueError):
             TextSplitter(chunk_size=10, chunk_overlap=10)
+
+
+class TestTokenSplitter:
+    def _mock_tokenizer(self):
+        """Create a mock tokenizer that splits on spaces."""
+        tok = MagicMock()
+        tok.encode.side_effect = lambda text, **kw: list(range(len(text.split())))
+        tok.decode.side_effect = lambda tokens, **kw: " ".join(f"w{t}" for t in tokens)
+        return tok
+
+    def test_short_text_no_split(self):
+        splitter = TokenSplitter(chunk_size=100, chunk_overlap=10)
+        splitter._tokenizer = self._mock_tokenizer()
+        chunks = splitter.split_text("hello world")
+        assert chunks == ["hello world"]
+
+    def test_splits_long_text(self):
+        splitter = TokenSplitter(chunk_size=3, chunk_overlap=1)
+        splitter._tokenizer = self._mock_tokenizer()
+        text = "a b c d e f g h"
+        chunks = splitter.split_text(text)
+        assert len(chunks) > 1
+
+    def test_split_documents(self):
+        splitter = TokenSplitter(chunk_size=3, chunk_overlap=1)
+        splitter._tokenizer = self._mock_tokenizer()
+        docs = [Document("a b c d e f", metadata={"key": "val"})]
+        result = splitter.split_documents(docs)
+        assert len(result) > 1
+        assert all(r.metadata["key"] == "val" for r in result)
+        assert all("chunk_index" in r.metadata for r in result)
+
+    def test_invalid_overlap_raises(self):
+        with pytest.raises(ValueError):
+            TokenSplitter(chunk_size=10, chunk_overlap=10)

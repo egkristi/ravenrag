@@ -7,6 +7,26 @@ from unittest.mock import patch
 import pytest
 
 from ravenrag import Document, DocumentIndex
+from ravenrag.index import QueryResult
+
+
+class TestQueryResult:
+    def test_dict_access(self):
+        r = QueryResult(id="1", text="hello", metadata={"k": "v"}, distance=0.5)
+        assert r["id"] == "1"
+        assert r["text"] == "hello"
+        assert r["metadata"] == {"k": "v"}
+        assert r["distance"] == 0.5
+
+    def test_dot_access(self):
+        r = QueryResult(id="1", text="hello", metadata={}, distance=0.5)
+        assert r.id == "1"
+        assert r.text == "hello"
+
+    def test_get_with_default(self):
+        r = QueryResult(id="1", text="hello", metadata={}, distance=0.5)
+        assert r.get("rerank_score") is None
+        assert r.get("nonexistent", "default") == "default"
 
 
 class TestDocument:
@@ -61,6 +81,22 @@ class TestDocumentIndex:
 
         mock_embedder.encode_batched.assert_called_once()
         mock_embedder.encode.assert_called_once_with(["sky"])
+
+    def test_add_empty_list(self):
+        index = DocumentIndex(persist_dir=self.temp_dir)
+        index.add([])  # Should not raise
+        assert index.count() == 0
+
+    def test_add_empty_text_raises(self):
+        index = DocumentIndex(persist_dir=self.temp_dir)
+        with pytest.raises(ValueError, match="empty text"):
+            index.add([Document("  ", doc_id="blank")])
+
+    def test_collection_name(self):
+        idx1 = DocumentIndex(persist_dir=self.temp_dir, collection_name="col1")
+        idx2 = DocumentIndex(persist_dir=self.temp_dir, collection_name="col2")
+        assert idx1.store.collection.name == "col1"
+        assert idx2.store.collection.name == "col2"
 
 
 @pytest.mark.integration

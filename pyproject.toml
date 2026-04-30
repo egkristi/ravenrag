@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ravenrag"
-version = "0.2.0"
-description = "Lightweight RAG for local documents"
+version = "0.3.0"
+description = "Lightweight, local-first RAG for your documents"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
@@ -25,10 +25,17 @@ dependencies = [
     "chromadb>=0.5.0",
     "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
+    "typer>=0.9.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.4.0"]
+hybrid = ["rank-bm25>=0.2.2"]
+watch = ["watchfiles>=0.20"]
+all = ["rank-bm25>=0.2.2", "watchfiles>=0.20"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "ruff>=0.4.0", "rank-bm25>=0.2.2", "watchfiles>=0.20"]
+
+[project.scripts]
+raven = "ravenrag.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/egkristi/ravenrag"
