@@ -70,9 +70,15 @@ class OllamaBackend:
     Example: ``ollama pull nomic-embed-text``
     """
 
-    def __init__(self, model_name: str = "nomic-embed-text", base_url: str = "http://localhost:11434"):
+    def __init__(
+        self,
+        model_name: str = "nomic-embed-text",
+        base_url: str = "http://localhost:11434",
+        timeout: int = 30,
+    ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         data = json.dumps({"model": self.model_name, "input": texts}).encode()
@@ -82,7 +88,7 @@ class OllamaBackend:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
                 body = resp.read()
         except urllib.error.HTTPError as e:
             raise ConnectionError(f"Ollama returned HTTP {e.code} for model '{self.model_name}': {e.reason}") from e
@@ -145,10 +151,12 @@ class OpenAIBackend:
         model_name: str,
         base_url: str = "http://localhost:8000/v1",
         api_key: str | None = None,
+        timeout: int = 30,
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.timeout = timeout
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         payload = json.dumps({"model": self.model_name, "input": texts}).encode()
@@ -162,7 +170,7 @@ class OpenAIBackend:
             headers=headers,
         )
         try:
-            with urllib.request.urlopen(req) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
                 body = resp.read()
         except urllib.error.HTTPError as e:
             raise ConnectionError(
@@ -215,5 +223,6 @@ class VLLMBackend(OpenAIBackend):
         model_name: str = "BAAI/bge-base-en-v1.5",
         base_url: str = "http://localhost:8000/v1",
         api_key: str | None = None,
+        timeout: int = 30,
     ):
-        super().__init__(model_name=model_name, base_url=base_url, api_key=api_key)
+        super().__init__(model_name=model_name, base_url=base_url, api_key=api_key, timeout=timeout)

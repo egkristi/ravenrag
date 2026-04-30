@@ -1,11 +1,11 @@
-"""Tests for TextSplitter and TokenSplitter."""
+"""Tests for TextSplitter, TokenSplitter, and SemanticSplitter."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
 from ravenrag import Document
-from ravenrag.splitter import TextSplitter, TokenSplitter
+from ravenrag.splitter import SemanticSplitter, TextSplitter, TokenSplitter
 
 
 class TestTextSplitter:
@@ -78,3 +78,73 @@ class TestTokenSplitter:
     def test_invalid_overlap_raises(self):
         with pytest.raises(ValueError):
             TokenSplitter(chunk_size=10, chunk_overlap=10)
+
+
+class TestSemanticSplitter:
+    def _mock_embedder(self):
+        """Embedder that returns different vectors for different sentences."""
+        embedder = MagicMock()
+        # Return vectors where adjacent sentences are similar, but a shift happens at sentence 3
+        embedder.encode.side_effect = lambda texts: [[1.0, 0.0] if i < 2 else [0.0, 1.0] for i in range(len(texts))]
+        return embedder
+
+    def test_short_text_no_split(self):
+        embedder = self._mock_embedder()
+        splitter = SemanticSplitter(embedder, threshold=0.5)
+        chunks = splitter.split_text("Short text.")
+        assert chunks == ["Short text."]
+
+    def test_splits_at_semantic_boundary(self):
+        embedder = MagicMock()
+        # Sentences 0,1 similar; sentence 2 very different
+        embedder.encode.return_value = [[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]]
+        splitter = SemanticSplitter(embedder, threshold=0.8, min_chunk_size=1)
+        text = "First sentence. Second sentence. Totally different topic."
+        chunks = splitter.split_text(text)
+        assert len(chunks) >= 2
+
+    def test_respects_max_chunk_size(self):
+        embedder = MagicMock()
+        # All similar → no semantic splits, but max_chunk_size forces splits
+        embedder.encode.return_value = [[1.0, 0.0]] * 5
+        splitter = SemanticSplitter(embedder, threshold=0.1, max_chunk_size=50, min_chunk_size=1)
+        text = "A" * 30 + ". " + "B" * 30 + ". " + "C" * 30 + ". " + "D" * 30 + ". " + "E" * 30 + "."
+        chunks = splitter.split_text(text)
+        # All chunks should respect max_chunk_size
+        for chunk in chunks:
+            assert len(chunk) <= 50
+
+    def test_merges_tiny_chunks(self):
+        embedder = MagicMock()
+        # Every pair is dissimilar → many splits
+        embedder.encode.return_value = [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]
+        splitter = SemanticSplitter(embedder, threshold=0.9, min_chunk_size=200)
+        text = "A. B. C."
+        chunks = splitter.split_text(text)
+        # Should merge small chunks
+        assert len(chunks) <= 2
+
+    def test_split_documents_preserves_metadata(self):
+        embedder = MagicMock()
+        embedder.encode.return_value = [[1.0, 0.0], [0.0, 1.0]]
+        splitter = SemanticSplitter(embedder, threshold=0.5)
+        docs = [Document("First topic. Different topic.", metadata={"key": "val"})]
+        result = splitter.split_documents(docs)
+        assert len(result) >= 1
+        assert all(r.metadata["key"] == "val" for r in result)
+        assert all("chunk_index" in r.metadata for r in result)
+        assert all(r.metadata.get("split_method") == "semantic" for r in result)
+
+    def test_empty_text(self):
+        embedder = MagicMock()
+        splitter = SemanticSplitter(embedder)
+        chunks = splitter.split_text("")
+        assert chunks == [] or chunks == [""]
+
+    def test_cosine_similarity_static(self):
+        assert SemanticSplitter._cosine_similarity([1, 0], [1, 0]) == 1.0
+        assert SemanticSplitter._cosine_similarity([1, 0], [0, 1]) == 0.0
+        assert abs(SemanticSplitter._cosine_similarity([1, 1], [1, 1]) - 1.0) < 1e-9
+
+    def test_cosine_similarity_zero_vector(self):
+        assert SemanticSplitter._cosine_similarity([0, 0], [1, 0]) == 0.0

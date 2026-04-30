@@ -163,6 +163,57 @@ class DocumentIndex:
         formatter = ContextFormatter(template=template)
         return formatter.format(query, results)
 
+    def query_parent(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        rerank: bool = False,
+    ) -> List[QueryResult]:
+        """Search on chunk level but return parent documents.
+
+        When documents have been split into chunks (via TextSplitter or
+        SemanticSplitter), this retrieves the matching chunks, then
+        fetches the full parent document for each match.
+
+        Chunks must have ``source_id`` in their metadata (set automatically
+        by all built-in splitters).
+
+        Returns one result per unique parent document, with the full
+        parent text and the best chunk's distance score.
+        """
+        results = self.query(query, top_k=top_k * 3, where=where, rerank=rerank)
+
+        # Deduplicate by source_id, keep the best (lowest distance) per parent
+        seen: Dict[str, QueryResult] = {}
+        for r in results:
+            parent_id = r.metadata.get("source_id", r.id)
+            if parent_id not in seen or r.distance < seen[parent_id].distance:
+                seen[parent_id] = r
+
+        # Try to fetch full parent text from the store
+        parent_results: List[QueryResult] = []
+        for parent_id, best_chunk in seen.items():
+            try:
+                parent_data = self.store.collection.get(ids=[parent_id], include=["documents", "metadatas"])
+                if parent_data["ids"] and parent_data["documents"]:
+                    parent_results.append(
+                        QueryResult(
+                            id=parent_id,
+                            text=parent_data["documents"][0],
+                            metadata=parent_data["metadatas"][0] if parent_data.get("metadatas") else {},
+                            distance=best_chunk.distance,
+                        )
+                    )
+                else:
+                    # Parent not in store (was chunked before indexing), return chunk
+                    parent_results.append(best_chunk)
+            except Exception:
+                parent_results.append(best_chunk)
+
+        parent_results.sort(key=lambda r: r.distance)
+        return parent_results[:top_k]
+
     def delete(self, doc_id: str) -> None:
         """Remove a document by ID."""
         self.store.delete(doc_id)

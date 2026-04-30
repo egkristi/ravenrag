@@ -50,3 +50,28 @@ class TestCLI:
         assert result.exit_code == 0
         assert "--host" in result.output
         assert "--port" in result.output
+
+    def test_export_help(self):
+        result = runner.invoke(app, ["export", "--help"])
+        assert result.exit_code == 0
+        assert "-o" in result.output
+
+    def test_import_help(self):
+        result = runner.invoke(app, ["import", "--help"])
+        assert result.exit_code == 0
+
+    def test_doctor_runs(self, tmp_path):
+        result = runner.invoke(app, ["doctor", "--db", str(tmp_path / "db")])
+        assert result.exit_code == 0
+        assert "RavenRAG Doctor" in result.output
+
+    def test_mcp_help(self):
+        result = runner.invoke(app, ["mcp", "--help"])
+        assert result.exit_code == 0
+
+    def test_help_shows_new_commands(self):
+        result = runner.invoke(app, ["--help"])
+        assert "export" in result.output
+        assert "import" in result.output
+        assert "doctor" in result.output
+        assert "mcp" in result.output

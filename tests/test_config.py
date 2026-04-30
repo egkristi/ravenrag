@@ -1,6 +1,6 @@
 """Tests for config loading."""
 
-from ravenrag.config import RavenConfig, _build_config, load_config
+from ravenrag.config import RavenConfig, _apply_env_overrides, _build_config, load_config
 
 
 class TestRavenConfig:
@@ -14,6 +14,8 @@ class TestRavenConfig:
         assert cfg.search.hybrid is False
         assert cfg.server.host == "127.0.0.1"
         assert cfg.server.port == 8484
+        assert cfg.server.api_key == ""
+        assert cfg.server.cors_origin == ""
 
     def test_build_config_from_dict(self):
         data = {
@@ -30,6 +32,25 @@ class TestRavenConfig:
         assert cfg.search.alpha == 0.7
         assert cfg.server.port == 9000
         assert cfg.watch_extensions == [".md", ".rst"]
+
+    def test_build_config_unknown_keys_ignored(self):
+        """Unknown keys should be silently ignored (with a warning log)."""
+        data = {
+            "index": {"persist_dir": "/tmp/db", "typo_key": "should_be_ignored"},
+            "search": {"top_k": 3},
+        }
+        cfg = _build_config(data)
+        assert cfg.index.persist_dir == "/tmp/db"
+        assert cfg.search.top_k == 3
+        assert not hasattr(cfg.index, "typo_key")
+
+    def test_build_config_server_auth(self):
+        data = {
+            "server": {"api_key": "my-secret", "cors_origin": "*"},
+        }
+        cfg = _build_config(data)
+        assert cfg.server.api_key == "my-secret"
+        assert cfg.server.cors_origin == "*"
 
 
 class TestLoadConfig:
@@ -77,3 +98,47 @@ alpha = 0.8
         (tmp_path / "ravenrag.toml").write_text('[index]\npersist_dir = "./raven_db"\n')
         cfg = load_config(search_dir=str(tmp_path))
         assert cfg.index.persist_dir == "./raven_db"
+
+
+class TestEnvOverrides:
+    def test_ravenrag_db(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_DB", "/tmp/env_db")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.index.persist_dir == "/tmp/env_db"
+
+    def test_ravenrag_model(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_MODEL", "custom-model")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.index.model == "custom-model"
+
+    def test_ravenrag_top_k(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_TOP_K", "20")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.search.top_k == 20
+
+    def test_ravenrag_api_key(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_API_KEY", "secret123")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.server.api_key == "secret123"
+
+    def test_ravenrag_port(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_PORT", "9999")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.server.port == 9999
+
+    def test_invalid_port_ignored(self, monkeypatch):
+        monkeypatch.setenv("RAVENRAG_PORT", "not_a_number")
+        cfg = RavenConfig()
+        _apply_env_overrides(cfg)
+        assert cfg.server.port == 8484  # Stays default
+
+    def test_env_overrides_config_file(self, tmp_path, monkeypatch):
+        (tmp_path / "ravenrag.toml").write_text('[index]\npersist_dir = "./file_db"\n')
+        monkeypatch.setenv("RAVENRAG_DB", "/tmp/env_wins")
+        cfg = load_config(search_dir=str(tmp_path))
+        assert cfg.index.persist_dir == "/tmp/env_wins"

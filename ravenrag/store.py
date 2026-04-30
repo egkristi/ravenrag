@@ -5,7 +5,7 @@ VectorStore: ChromaDB-backed persistent vector storage.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Protocol, runtime_checkable
 
 import chromadb
 
@@ -20,6 +20,21 @@ def _strip_placeholder(metadata: Optional[Dict]) -> Dict:
     if metadata == _PLACEHOLDER_METADATA:
         return {}
     return metadata or {}
+
+
+@runtime_checkable
+class VectorStoreBackend(Protocol):
+    """Protocol that vector store backends must satisfy.
+
+    Implement this to use a different backend (Qdrant, FAISS, pgvector, etc.).
+    """
+
+    def upsert(self, documents: List["Document"], embeddings: List[List[float]]) -> None: ...
+    def search(self, query_embedding: List[float], top_k: int = 5, where: Optional[Dict] = None) -> List[Dict]: ...
+    def delete(self, doc_id: str) -> None: ...
+    def count(self) -> int: ...
+    def get_all(self) -> Dict: ...
+    def clear(self) -> None: ...
 
 
 class VectorStore:

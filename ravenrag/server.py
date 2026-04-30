@@ -17,6 +17,9 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+_MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
+_MAX_TOP_K = 1000
+
 
 class _RavenHandler(BaseHTTPRequestHandler):
     """HTTP request handler for RavenRAG API."""
@@ -24,22 +27,51 @@ class _RavenHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         logger.info(format, *args)
 
+    def _check_auth(self) -> bool:
+        """Validate API key if one is configured on the server."""
+        api_key: str | None = getattr(self.server, "raven_api_key", None)
+        if not api_key:
+            return True
+        auth = self.headers.get("Authorization", "")
+        if auth == f"Bearer {api_key}":
+            return True
+        self._send_json({"error": "Unauthorized"}, 401)
+        return False
+
     def _send_json(self, data: Any, status: int = 200) -> None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        cors = getattr(self.server, "raven_cors_origin", None)
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", cors)
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> Dict:
+    def _read_json(self) -> Dict | None:
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
             return {}
+        if length > _MAX_BODY_BYTES:
+            self._send_json({"error": "Payload too large"}, 413)
+            return None
         body = self.rfile.read(length)
         return json.loads(body)
 
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        """Handle CORS preflight."""
+        self.send_response(204)
+        cors = getattr(self.server, "raven_cors_origin", None)
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", cors)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
+        if not self._check_auth():
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
@@ -53,6 +85,8 @@ class _RavenHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, 404)
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._check_auth():
+            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
@@ -61,6 +95,8 @@ class _RavenHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, ValueError) as e:
             self._send_json({"error": f"Invalid JSON: {e}"}, 400)
             return
+        if body is None:
+            return  # _read_json already sent 413
 
         if path == "/query":
             self._handle_query(body)
@@ -76,9 +112,6 @@ class _RavenHandler(BaseHTTPRequestHandler):
         self._send_json(
             {
                 "documents": index.count(),
-                "persist_dir": str(
-                    getattr(index.store, "client")._identifier if hasattr(index.store, "client") else "unknown"
-                ),
                 "collection": index.store.collection.name,
             }
         )
@@ -99,7 +132,7 @@ class _RavenHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Missing 'query' field"}, 400)
             return
 
-        top_k = body.get("top_k", 5)
+        top_k = min(max(int(body.get("top_k", 5)), 1), _MAX_TOP_K)
         where = body.get("where")
         rerank = body.get("rerank", False)
         hybrid = body.get("hybrid", False)
@@ -187,6 +220,8 @@ def create_server(
     index: Any,
     host: str = "127.0.0.1",
     port: int = 8484,
+    api_key: str | None = None,
+    cors_origin: str | None = None,
 ) -> HTTPServer:
     """Create an HTTP server bound to the given index.
 
@@ -194,12 +229,16 @@ def create_server(
         index: A DocumentIndex instance.
         host: Bind address.
         port: Bind port.
+        api_key: Optional API key for Bearer auth.
+        cors_origin: Optional CORS origin (e.g. ``"*"``).
 
     Returns:
         An HTTPServer ready to serve_forever().
     """
     server = HTTPServer((host, port), _RavenHandler)
     server.raven_index = index  # type: ignore[attr-defined]
+    server.raven_api_key = api_key  # type: ignore[attr-defined]
+    server.raven_cors_origin = cors_origin  # type: ignore[attr-defined]
     return server
 
 
@@ -209,6 +248,8 @@ def serve(
     embedding_model: str = "all-MiniLM-L6-v2",
     host: str = "127.0.0.1",
     port: int = 8484,
+    api_key: str | None = None,
+    cors_origin: str | None = None,
 ) -> None:
     """Start the RavenRAG API server.
 
@@ -227,12 +268,14 @@ def serve(
         collection_name=collection_name,
         embedding_model=embedding_model,
     )
-    server = create_server(index, host=host, port=port)
+    server = create_server(index, host=host, port=port, api_key=api_key, cors_origin=cors_origin)
 
     logger.info("RavenRAG server starting on http://%s:%d", host, port)
     print(f"🐦‍⬛ RavenRAG server running on http://{host}:{port}")
     print(f"   Database: {persist_dir} (collection: {collection_name})")
     print(f"   Documents: {index.count()}")
+    if api_key:
+        print("   Auth: API key required (Bearer token)")
     print("   Endpoints: /health /stats /query /prompt /index /collections")
     print("   Press Ctrl+C to stop.")
 

@@ -5,7 +5,7 @@ import tempfile
 from io import BytesIO
 from unittest.mock import MagicMock
 
-from ravenrag.server import _RavenHandler, create_server
+from ravenrag.server import create_server
 
 
 class _FakeRequest(BytesIO):
@@ -42,25 +42,27 @@ class TestServerEndpoints:
         assert server.raven_index is idx
         server.server_close()
 
+    def test_create_server_with_api_key(self):
+        idx = self._make_mock_index()
+        server = create_server(idx, port=0, api_key="test-key")
+        assert server.raven_api_key == "test-key"
+        server.server_close()
+
+    def test_create_server_with_cors(self):
+        idx = self._make_mock_index()
+        server = create_server(idx, port=0, cors_origin="*")
+        assert server.raven_cors_origin == "*"
+        server.server_close()
+
     def test_health_endpoint(self):
         idx = self._make_mock_index()
         server = create_server(idx, port=0)
-
-        # Simulate GET /health by testing handler logic directly
-        handler = MagicMock(spec=_RavenHandler)
-        handler.server = server
-        handler.path = "/health"
-        handler.headers = {}
-        handler.wfile = BytesIO()
-
-        # We test the server object creation and binding
         assert hasattr(server, "raven_index")
         server.server_close()
 
     def test_query_missing_field(self):
         """Test that POST /query without query field returns 400."""
         idx = self._make_mock_index()
-        # Verify the index mock is properly configured
         assert idx.count() == 0
         assert idx.query.return_value == []
 

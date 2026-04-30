@@ -2,9 +2,15 @@
 TextSplitter: Split long documents into overlapping chunks.
 """
 
-from typing import List
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING, List
 
 from .index import Document
+
+if TYPE_CHECKING:
+    from .embed import EmbeddingBackend
 
 
 class TextSplitter:
@@ -115,5 +121,112 @@ class TokenSplitter:
             chunks = self.split_text(doc.text)
             for i, chunk in enumerate(chunks):
                 metadata = {**doc.metadata, "chunk_index": i, "source_id": doc.id}
+                result.append(Document(text=chunk, metadata=metadata))
+        return result
+
+
+class SemanticSplitter:
+    """Split text at semantic boundaries using embedding similarity.
+
+    Instead of splitting at fixed character/token positions, this splitter:
+    1. Splits text into sentences.
+    2. Embeds each sentence.
+    3. Measures cosine similarity between consecutive sentences.
+    4. Cuts where similarity drops below a threshold.
+    5. Merges adjacent sentences into chunks (respecting max_chunk_size).
+
+    Args:
+        embedder: An EmbeddingBackend to compute sentence embeddings.
+        threshold: Cosine similarity threshold (0.0–1.0). Lower = larger chunks.
+        max_chunk_size: Maximum characters per chunk (hard limit).
+        min_chunk_size: Minimum characters per chunk (merge small chunks).
+    """
+
+    def __init__(
+        self,
+        embedder: EmbeddingBackend,
+        threshold: float = 0.5,
+        max_chunk_size: int = 2048,
+        min_chunk_size: int = 100,
+    ):
+        self.embedder = embedder
+        self.threshold = threshold
+        self.max_chunk_size = max_chunk_size
+        self.min_chunk_size = min_chunk_size
+
+    @staticmethod
+    def _split_sentences(text: str) -> List[str]:
+        """Split text into sentences using regex."""
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return [s.strip() for s in sentences if s.strip()]
+
+    @staticmethod
+    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(x * x for x in b) ** 0.5
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    def split_text(self, text: str) -> List[str]:
+        """Split text into semantically coherent chunks."""
+        sentences = self._split_sentences(text)
+        if len(sentences) <= 1:
+            return [text] if text.strip() else []
+
+        # Embed all sentences
+        embeddings = self.embedder.encode(sentences)
+
+        # Find split points where similarity drops below threshold
+        split_indices: List[int] = []
+        for i in range(len(embeddings) - 1):
+            sim = self._cosine_similarity(embeddings[i], embeddings[i + 1])
+            if sim < self.threshold:
+                split_indices.append(i + 1)
+
+        # Build chunks from split points
+        chunks: List[str] = []
+        start = 0
+        for idx in split_indices:
+            chunk = " ".join(sentences[start:idx])
+            if chunk:
+                chunks.append(chunk)
+            start = idx
+        # Last chunk
+        chunk = " ".join(sentences[start:])
+        if chunk:
+            chunks.append(chunk)
+
+        # Enforce max_chunk_size: split oversized chunks
+        final: List[str] = []
+        for chunk in chunks:
+            if len(chunk) <= self.max_chunk_size:
+                final.append(chunk)
+            else:
+                # Fall back to character-based splitting for oversized chunks
+                for i in range(0, len(chunk), self.max_chunk_size):
+                    part = chunk[i : i + self.max_chunk_size].strip()
+                    if part:
+                        final.append(part)
+
+        # Merge tiny chunks with their neighbors
+        merged: List[str] = []
+        for chunk in final:
+            if merged and len(merged[-1]) < self.min_chunk_size:
+                merged[-1] = merged[-1] + " " + chunk
+            else:
+                merged.append(chunk)
+
+        return merged if merged else [text]
+
+    def split_documents(self, documents: List[Document]) -> List[Document]:
+        """Split documents at semantic boundaries, preserving metadata."""
+        result: List[Document] = []
+        for doc in documents:
+            chunks = self.split_text(doc.text)
+            for i, chunk in enumerate(chunks):
+                metadata = {**doc.metadata, "chunk_index": i, "source_id": doc.id, "split_method": "semantic"}
                 result.append(Document(text=chunk, metadata=metadata))
         return result

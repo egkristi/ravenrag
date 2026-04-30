@@ -1,15 +1,35 @@
 """
 Config: Load project settings from ravenrag.toml or pyproject.toml.
+
+Precedence (highest wins): environment variables > config file > defaults.
+
+Environment variables:
+    RAVENRAG_DB           → index.persist_dir
+    RAVENRAG_COLLECTION   → index.collection
+    RAVENRAG_MODEL        → index.model
+    RAVENRAG_TOP_K        → search.top_k
+    RAVENRAG_HOST         → server.host
+    RAVENRAG_PORT         → server.port
+    RAVENRAG_API_KEY      → server.api_key
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Known config keys for schema validation
+_KNOWN_KEYS: Dict[str, set] = {
+    "index": {"persist_dir", "collection", "model", "batch_size", "chunk_size", "chunk_overlap", "glob"},
+    "search": {"top_k", "rerank", "rerank_model", "hybrid", "alpha"},
+    "server": {"host", "port", "api_key", "cors_origin"},
+    "watch": {"extensions"},
+}
 
 
 @dataclass
@@ -36,6 +56,8 @@ class SearchConfig:
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8484
+    api_key: str = ""
+    cors_origin: str = ""
 
 
 @dataclass
@@ -155,27 +177,52 @@ def _build_config(data: Dict) -> RavenConfig:
     """Build a RavenConfig from parsed TOML data."""
     config = RavenConfig()
 
-    if "index" in data:
-        for key, value in data["index"].items():
+    for section_name in ("index", "search", "server"):
+        if section_name not in data:
+            continue
+        section_obj = getattr(config, section_name)
+        known = _KNOWN_KEYS.get(section_name, set())
+        for key, value in data[section_name].items():
             key = key.replace("-", "_")
-            if hasattr(config.index, key):
-                setattr(config.index, key, value)
+            if key not in known:
+                logger.warning("Unknown config key [%s].%s — ignoring (typo?)", section_name, key)
+                continue
+            if hasattr(section_obj, key):
+                setattr(section_obj, key, value)
 
-    if "search" in data:
-        for key, value in data["search"].items():
-            key = key.replace("-", "_")
-            if hasattr(config.search, key):
-                setattr(config.search, key, value)
-
-    if "server" in data:
-        for key, value in data["server"].items():
-            key = key.replace("-", "_")
-            if hasattr(config.server, key):
-                setattr(config.server, key, value)
+    if "watch" in data:
+        known_watch = _KNOWN_KEYS.get("watch", set())
+        for key in data["watch"]:
+            if key.replace("-", "_") not in known_watch:
+                logger.warning("Unknown config key [watch].%s — ignoring (typo?)", key)
+        if "extensions" in data["watch"]:
+            config.watch_extensions = data["watch"]["extensions"]
 
     if "watch_extensions" in data:
         config.watch_extensions = data["watch_extensions"]
-    elif "watch" in data and "extensions" in data["watch"]:
-        config.watch_extensions = data["watch"]["extensions"]
+
+    # Environment variable overrides (highest precedence)
+    _apply_env_overrides(config)
 
     return config
+
+
+def _apply_env_overrides(config: RavenConfig) -> None:
+    """Apply RAVENRAG_* environment variables over config values."""
+    env_map = {
+        "RAVENRAG_DB": ("index", "persist_dir", str),
+        "RAVENRAG_COLLECTION": ("index", "collection", str),
+        "RAVENRAG_MODEL": ("index", "model", str),
+        "RAVENRAG_TOP_K": ("search", "top_k", int),
+        "RAVENRAG_HOST": ("server", "host", str),
+        "RAVENRAG_PORT": ("server", "port", int),
+        "RAVENRAG_API_KEY": ("server", "api_key", str),
+    }
+    for env_var, (section, attr, cast) in env_map.items():
+        value = os.environ.get(env_var)
+        if value is not None:
+            try:
+                setattr(getattr(config, section), attr, cast(value))
+                logger.debug("Config override from %s", env_var)
+            except (ValueError, TypeError):
+                logger.warning("Invalid value for %s=%r — ignoring", env_var, value)

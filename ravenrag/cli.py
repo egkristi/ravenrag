@@ -62,7 +62,32 @@ def index(
         typer.echo("No documents found.", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Found {len(docs)} files.")
+    # Incremental re-indexing: skip unchanged files
+    from .fingerprint import FingerprintStore
+
+    fp_store = FingerprintStore(db)
+    from pathlib import Path as _Path
+
+    file_paths = [_Path(d.metadata.get("source", "")) for d in docs if d.metadata.get("source")]
+    changed, unchanged, deleted = fp_store.diff(file_paths)
+    changed_sources = {str(p.resolve()) for p in changed}
+
+    if unchanged:
+        typer.echo(f"Skipping {len(unchanged)} unchanged files.")
+    if deleted:
+        typer.echo(f"Removing {len(deleted)} deleted files from index.")
+        for key in deleted:
+            # Delete all docs whose source matches this key
+            fp_store.remove(key)
+
+    docs = [d for d in docs if d.metadata.get("source") in changed_sources or not d.metadata.get("source")]
+
+    if not docs and not deleted:
+        typer.echo("Everything up to date.")
+        fp_store.save()
+        return
+
+    typer.echo(f"Found {len(docs)} new/changed files.")
 
     splitter = TextSplitter(chunk_size=cs, chunk_overlap=co)
     chunks = splitter.split_documents(docs)
@@ -70,6 +95,12 @@ def index(
 
     idx = DocumentIndex(persist_dir=db, collection_name=col, embedding_model=mdl)
     idx.add(chunks)
+
+    # Update fingerprints for indexed files
+    for p in changed:
+        fp_store.update(p)
+    fp_store.save()
+
     typer.echo(f"Indexed {idx.count()} documents in {db}")
 
 
@@ -159,6 +190,8 @@ def serve(
         embedding_model=model or cfg.index.model,
         host=host or cfg.server.host,
         port=port or cfg.server.port,
+        api_key=cfg.server.api_key or None,
+        cors_origin=cfg.server.cors_origin or None,
     )
 
 
@@ -218,3 +251,137 @@ def info(
     typer.echo(f"Database: {db}")
     typer.echo(f"Collection: {col}")
     typer.echo(f"Documents: {count}")
+
+
+@app.command("export")
+def export_cmd(
+    persist_dir: Optional[str] = _db_option,
+    collection: Optional[str] = _collection_option,
+    model: Optional[str] = _model_option,
+    output: Optional[str] = typer.Option(None, "-o", help="Output file (default: stdout)"),
+    verbose: bool = _verbose_option,
+) -> None:
+    """Export all documents as JSONL."""
+    _setup_logging(verbose)
+    import sys
+
+    from . import DocumentIndex
+    from .export import export_index
+
+    cfg = _get_config()
+    db = persist_dir or cfg.index.persist_dir
+    col = collection or cfg.index.collection
+    mdl = model or cfg.index.model
+
+    idx = DocumentIndex(persist_dir=db, collection_name=col, embedding_model=mdl)
+
+    if output:
+        with open(output, "w", encoding="utf-8") as f:
+            n = export_index(idx, f)
+        typer.echo(f"Exported {n} documents to {output}", err=True)
+    else:
+        n = export_index(idx, sys.stdout)
+        typer.echo(f"Exported {n} documents", err=True)
+
+
+@app.command("import")
+def import_cmd(
+    input_file: str = typer.Argument(..., help="JSONL file to import"),
+    persist_dir: Optional[str] = _db_option,
+    collection: Optional[str] = _collection_option,
+    model: Optional[str] = _model_option,
+    verbose: bool = _verbose_option,
+) -> None:
+    """Import documents from a JSONL file."""
+    _setup_logging(verbose)
+    from . import DocumentIndex
+    from .export import import_index
+
+    cfg = _get_config()
+    db = persist_dir or cfg.index.persist_dir
+    col = collection or cfg.index.collection
+    mdl = model or cfg.index.model
+
+    idx = DocumentIndex(persist_dir=db, collection_name=col, embedding_model=mdl)
+    n = import_index(idx, input_file)
+    typer.echo(f"Imported {n} documents. Total: {idx.count()}")
+
+
+@app.command()
+def doctor(
+    persist_dir: Optional[str] = _db_option,
+    collection: Optional[str] = _collection_option,
+    verbose: bool = _verbose_option,
+) -> None:
+    """Diagnose your RavenRAG setup."""
+    _setup_logging(verbose)
+    from .config import load_config
+
+    cfg = load_config()
+    db = persist_dir or cfg.index.persist_dir
+    col = collection or cfg.index.collection
+
+    typer.echo("🐦‍⬛ RavenRAG Doctor\n")
+
+    # Check config
+    typer.echo(f"  Config: persist_dir={cfg.index.persist_dir}, model={cfg.index.model}")
+
+    # Check database
+    from pathlib import Path
+
+    db_path = Path(db)
+    if db_path.exists():
+        typer.echo(f"  Database: {db} ✓ (exists)")
+    else:
+        typer.echo(f"  Database: {db} ✗ (not found)")
+
+    # Check ChromaDB
+    try:
+        from . import DocumentIndex
+
+        idx = DocumentIndex(persist_dir=db, collection_name=col)
+        typer.echo(f"  ChromaDB: {idx.count()} documents in '{col}' ✓")
+    except Exception as e:
+        typer.echo(f"  ChromaDB: ✗ ({e})")
+
+    # Check embedding model
+    try:
+        from .embed import Embedder
+
+        emb = Embedder(cfg.index.model)
+        emb.encode(["test"])
+        typer.echo(f"  Embedder: {cfg.index.model} ✓")
+    except Exception as e:
+        typer.echo(f"  Embedder: {cfg.index.model} ✗ ({e})")
+
+    # Check optional deps
+    optional = [
+        ("rank_bm25", "hybrid search"),
+        ("watchfiles", "watch mode"),
+        ("transformers", "token splitting"),
+    ]
+    for pkg, feature in optional:
+        try:
+            __import__(pkg)
+            typer.echo(f"  {feature}: ✓")
+        except ImportError:
+            typer.echo(f"  {feature}: ✗ (not installed)")
+
+
+@app.command()
+def mcp(
+    persist_dir: Optional[str] = _db_option,
+    collection: Optional[str] = _collection_option,
+    model: Optional[str] = _model_option,
+    verbose: bool = _verbose_option,
+) -> None:
+    """Start the MCP (Model Context Protocol) server for AI assistants."""
+    _setup_logging(verbose)
+    from .mcp_server import run_stdio_server
+
+    cfg = _get_config()
+    run_stdio_server(
+        persist_dir=persist_dir or cfg.index.persist_dir,
+        collection_name=collection or cfg.index.collection,
+        embedding_model=model or cfg.index.model,
+    )

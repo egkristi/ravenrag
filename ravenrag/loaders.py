@@ -83,6 +83,13 @@ def load_directory(
         if not file_path.is_file():
             continue
 
+        # Path traversal protection: ensure file is within target directory
+        try:
+            file_path.resolve().relative_to(dir_path)
+        except ValueError:
+            logger.warning("Skipping %s: outside target directory", file_path)
+            continue
+
         # Check for registered plugin loader
         if file_path.suffix in _loader_registry:
             try:
