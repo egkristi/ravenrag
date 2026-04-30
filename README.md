@@ -46,6 +46,8 @@ No cloud required. No API keys. Just local embeddings, persistent vector storage
 | ⏱️ **Observability** | `@timed` decorator, `/metrics` endpoint, `raven benchmark` CLI |
 | 🌊 **Streaming** | `query_stream()` yields results one at a time |
 | 🗂️ **Multi-collection** | `MultiCollectionRouter` queries across multiple indices |
+| 🕸️ **Knowledge graph** | Entity extraction + graph traversal retrieval |
+| 📋 **OpenAPI schema** | `/openapi.json` endpoint for API tooling |
 
 ---
 
@@ -533,7 +535,49 @@ raven benchmark --num-docs 100
 
 ---
 
-## 📦 Architecture
+## �️ Knowledge Graph Retrieval
+
+Build a knowledge graph from your documents and use graph traversal to find related content that pure vector search might miss:
+
+```python
+from ravenrag import DocumentIndex, Document, KnowledgeGraph
+
+index = DocumentIndex(persist_dir="./db")
+graph = KnowledgeGraph()
+
+docs = [
+    Document("Python is a programming language created by Guido van Rossum."),
+    Document("Guido van Rossum also designed the ABC language."),
+    Document("Machine Learning uses Python extensively."),
+]
+index.add(docs)
+graph.add_documents(docs)
+
+# Graph-augmented search: finds docs through entity connections
+results = index.graph_query("ABC language", graph=graph, max_hops=2, alpha=0.5)
+# Discovers the Python/Guido connection even if "ABC" has low vector similarity
+
+# Persist the graph
+graph.save("./graph.json")
+```
+
+The `GraphRetriever` fuses graph traversal with vector similarity using reciprocal rank fusion (`alpha=1.0` → pure graph, `alpha=0.0` → pure vector).
+
+---
+
+## 📋 OpenAPI Schema
+
+The API server exposes its full schema at `/openapi.json`, compatible with Swagger UI, Redoc, and OpenAPI tooling:
+
+```bash
+curl http://localhost:8484/openapi.json
+```
+
+Import the schema into any OpenAPI-compatible tool for automatic client generation, documentation, or testing.
+
+---
+
+## �📦 Architecture
 
 ```
 ravenrag/
@@ -545,9 +589,10 @@ ravenrag/
 ├── loaders.py      → load_text, load_directory, register_loader, built-in loaders
 ├── rerank.py       → Reranker (cross-encoder)
 ├── hybrid.py       → HybridSearcher (BM25 + vector fusion)
+├── graph.py        → KnowledgeGraph, GraphRetriever (entity extraction + graph traversal)
 ├── context.py      → ContextFormatter (LLM prompt builder)
 ├── config.py       → RavenConfig, load_config (TOML + env vars)
-├── server.py       → HTTP API server (auth, CORS, /metrics)
+├── server.py       → HTTP API server (auth, CORS, /metrics, /openapi.json)
 ├── mcp_server.py   → MCP stdio server (for AI assistants)
 ├── watcher.py      → watch_directory (debounce, delete support)
 ├── fingerprint.py  → FingerprintStore (incremental re-indexing)
@@ -647,8 +692,8 @@ uv run pytest tests/ -v --cov=ravenrag
 - [x] Query embedding cache (thread-safe LRU)
 - [x] Multi-collection routing
 - [x] Observability (`@timed`, `/metrics`, `raven benchmark`)
-- [ ] Knowledge graph retrieval
-- [ ] OpenAPI schema for server
+- [x] Knowledge graph retrieval
+- [x] OpenAPI schema for server
 
 ---
 

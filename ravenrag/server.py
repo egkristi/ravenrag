@@ -20,6 +20,267 @@ logger = logging.getLogger(__name__)
 _MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
 _MAX_TOP_K = 1000
 
+_OPENAPI_SPEC = {
+    "openapi": "3.0.3",
+    "info": {
+        "title": "RavenRAG API",
+        "description": "Lightweight, local-first RAG retrieval API.",
+        "version": "0.7.0",
+    },
+    "paths": {
+        "/health": {
+            "get": {
+                "summary": "Health check",
+                "operationId": "healthCheck",
+                "responses": {
+                    "200": {
+                        "description": "Server is healthy",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"status": {"type": "string", "example": "ok"}},
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/stats": {
+            "get": {
+                "summary": "Index statistics",
+                "operationId": "getStats",
+                "responses": {
+                    "200": {
+                        "description": "Document count and collection info",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "documents": {"type": "integer"},
+                                        "collection": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/collections": {
+            "get": {
+                "summary": "List collections",
+                "operationId": "listCollections",
+                "responses": {
+                    "200": {
+                        "description": "Available collections",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "collections": {"type": "array", "items": {"type": "string"}},
+                                    },
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        },
+        "/metrics": {
+            "get": {
+                "summary": "Timing and cache metrics",
+                "operationId": "getMetrics",
+                "responses": {
+                    "200": {
+                        "description": "Performance metrics",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    }
+                },
+            }
+        },
+        "/query": {
+            "post": {
+                "summary": "Search documents",
+                "operationId": "queryDocuments",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["query"],
+                                "properties": {
+                                    "query": {"type": "string", "description": "Search query text"},
+                                    "top_k": {"type": "integer", "default": 5, "minimum": 1, "maximum": 1000},
+                                    "where": {
+                                        "type": "object",
+                                        "description": "Metadata filter",
+                                        "additionalProperties": True,
+                                    },
+                                    "rerank": {"type": "boolean", "default": False},
+                                    "hybrid": {"type": "boolean", "default": False},
+                                    "alpha": {
+                                        "type": "number",
+                                        "default": 0.5,
+                                        "minimum": 0.0,
+                                        "maximum": 1.0,
+                                        "description": "Hybrid alpha: 1.0=vector, 0.0=BM25",
+                                    },
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Search results",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string"},
+                                        "results": {
+                                            "type": "array",
+                                            "items": {"$ref": "#/components/schemas/QueryResult"},
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "400": {"description": "Missing or invalid query"},
+                },
+            }
+        },
+        "/prompt": {
+            "post": {
+                "summary": "Get LLM-ready prompt",
+                "operationId": "queryForPrompt",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["query"],
+                                "properties": {
+                                    "query": {"type": "string"},
+                                    "top_k": {"type": "integer", "default": 5},
+                                    "where": {"type": "object", "additionalProperties": True},
+                                    "template": {"type": "string", "description": "Custom prompt template"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Formatted prompt",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string"},
+                                        "prompt": {"type": "string"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "400": {"description": "Missing query"},
+                },
+            }
+        },
+        "/index": {
+            "post": {
+                "summary": "Index new documents",
+                "operationId": "indexDocuments",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["documents"],
+                                "properties": {
+                                    "documents": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["text"],
+                                            "properties": {
+                                                "text": {"type": "string"},
+                                                "metadata": {"type": "object", "additionalProperties": True},
+                                                "id": {"type": "string"},
+                                            },
+                                        },
+                                    }
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Indexing result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "indexed": {"type": "integer"},
+                                        "total": {"type": "integer"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "400": {"description": "Missing or invalid documents"},
+                },
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "summary": "OpenAPI schema",
+                "operationId": "getOpenApiSchema",
+                "responses": {
+                    "200": {
+                        "description": "This OpenAPI specification",
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    }
+                },
+            }
+        },
+    },
+    "components": {
+        "schemas": {
+            "QueryResult": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "text": {"type": "string"},
+                    "metadata": {"type": "object", "additionalProperties": True},
+                    "distance": {"type": "number"},
+                    "rerank_score": {"type": "number", "nullable": True},
+                },
+            }
+        },
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+            }
+        },
+    },
+    "security": [{"BearerAuth": []}],
+}
+
 
 class _RavenHandler(BaseHTTPRequestHandler):
     """HTTP request handler for RavenRAG API."""
@@ -83,6 +344,8 @@ class _RavenHandler(BaseHTTPRequestHandler):
             self._handle_collections()
         elif path == "/metrics":
             self._handle_metrics()
+        elif path == "/openapi.json":
+            self._send_json(_OPENAPI_SPEC)
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -283,12 +546,14 @@ def serve(
     """Start the RavenRAG API server.
 
     Endpoints:
-        GET  /health      → {"status": "ok"}
-        GET  /stats       → {"documents": N, ...}
-        GET  /collections → {"collections": [...]}
-        POST /query       → {"query": "...", "top_k": 5, "where": {}, "rerank": false, "hybrid": false}
-        POST /prompt      → {"query": "...", "top_k": 5, "template": "..."}
-        POST /index       → {"documents": [{"text": "...", "metadata": {...}}]}
+        GET  /health       → {"status": "ok"}
+        GET  /stats        → {"documents": N, ...}
+        GET  /collections  → {"collections": [...]}
+        GET  /metrics      → timing & cache stats
+        GET  /openapi.json → OpenAPI 3.0 schema
+        POST /query        → {"query": "...", "top_k": 5, "where": {}, "rerank": false, "hybrid": false}
+        POST /prompt       → {"query": "...", "top_k": 5, "template": "..."}
+        POST /index        → {"documents": [{"text": "...", "metadata": {...}}]}
     """
     from .index import DocumentIndex
 
@@ -305,7 +570,7 @@ def serve(
     print(f"   Documents: {index.count()}")
     if api_key:
         print("   Auth: API key required (Bearer token)")
-    print("   Endpoints: /health /stats /query /prompt /index /collections")
+    print("   Endpoints: /health /stats /query /prompt /index /collections /openapi.json")
     print("   Press Ctrl+C to stop.")
 
     try:

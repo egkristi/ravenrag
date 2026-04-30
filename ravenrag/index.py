@@ -293,6 +293,45 @@ class DocumentIndex:
 
         return await asyncio.to_thread(self.hybrid_query, query, top_k, where, alpha)
 
+    def graph_query(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict] = None,
+        graph: Optional[Any] = None,
+        max_hops: int = 2,
+        alpha: float = 0.5,
+    ) -> List[QueryResult]:
+        """Knowledge-graph-augmented retrieval.
+
+        Extracts entities from the query, traverses the knowledge graph
+        to find related documents, and fuses the graph signal with
+        vector similarity via reciprocal rank fusion.
+
+        Args:
+            query: Search query.
+            top_k: Number of results to return.
+            where: Optional metadata filter.
+            graph: A KnowledgeGraph instance. Required.
+            max_hops: Graph traversal depth. Default 2.
+            alpha: Balance between graph (1.0) and vector (0.0). Default 0.5.
+
+        Returns:
+            List of QueryResult ranked by fused score.
+        """
+        if graph is None:
+            raise ValueError("A KnowledgeGraph instance is required for graph_query")
+        from .graph import GraphRetriever
+
+        retriever = GraphRetriever(
+            graph=graph,
+            store=self.store,
+            embedder=self.embedder,
+            max_hops=max_hops,
+            alpha=alpha,
+        )
+        return retriever.search(query, top_k=top_k, where=where)
+
     def query_stream(
         self,
         query: str,

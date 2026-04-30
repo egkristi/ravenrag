@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ravenrag"
-version = "0.6.0"
+version = "0.7.0"
 description = "Lightweight, local-first RAG for your documents"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}

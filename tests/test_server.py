@@ -209,3 +209,71 @@ class TestServerAuth:
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read())
             assert data["status"] == "ok"
+
+
+class TestServerOpenAPI:
+    """Test OpenAPI schema endpoint."""
+
+    def setup_method(self):
+        self.idx = MagicMock()
+        self.idx.count.return_value = 0
+        self.idx.store.collection.name = "test"
+
+        self.server = create_server(self.idx, host="127.0.0.1", port=0)
+        self.port = self.server.server_address[1]
+        self.base_url = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def teardown_method(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    def _get(self, path):
+        req = urllib.request.Request(f"{self.base_url}{path}")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read()), resp.status
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read()), e.code
+
+    def test_openapi_returns_200(self):
+        data, status = self._get("/openapi.json")
+        assert status == 200
+
+    def test_openapi_has_required_fields(self):
+        data, _ = self._get("/openapi.json")
+        assert data["openapi"] == "3.0.3"
+        assert "info" in data
+        assert "paths" in data
+
+    def test_openapi_info(self):
+        data, _ = self._get("/openapi.json")
+        assert data["info"]["title"] == "RavenRAG API"
+        assert "version" in data["info"]
+
+    def test_openapi_lists_all_endpoints(self):
+        data, _ = self._get("/openapi.json")
+        paths = data["paths"]
+        assert "/health" in paths
+        assert "/stats" in paths
+        assert "/collections" in paths
+        assert "/metrics" in paths
+        assert "/query" in paths
+        assert "/prompt" in paths
+        assert "/index" in paths
+        assert "/openapi.json" in paths
+
+    def test_openapi_query_schema(self):
+        data, _ = self._get("/openapi.json")
+        query_schema = data["paths"]["/query"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        assert "query" in query_schema["properties"]
+        assert "top_k" in query_schema["properties"]
+        assert "hybrid" in query_schema["properties"]
+
+    def test_openapi_components(self):
+        data, _ = self._get("/openapi.json")
+        assert "QueryResult" in data["components"]["schemas"]
+        assert "BearerAuth" in data["components"]["securitySchemes"]
