@@ -143,8 +143,9 @@ class _RavenHandler(BaseHTTPRequestHandler):
                 results = index.hybrid_query(query, top_k=top_k, where=where, alpha=alpha)
             else:
                 results = index.query(query, top_k=top_k, where=where, rerank=rerank)
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
+        except Exception:
+            logger.exception("Query failed")
+            self._send_json({"error": "Internal server error"}, 500)
             return
 
         self._send_json(
@@ -176,8 +177,9 @@ class _RavenHandler(BaseHTTPRequestHandler):
 
         try:
             prompt = index.query_for_prompt(query, top_k=top_k, where=where, template=template)
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
+        except Exception:
+            logger.exception("Prompt generation failed")
+            self._send_json({"error": "Internal server error"}, 500)
             return
 
         self._send_json({"query": query, "prompt": prompt})
@@ -209,8 +211,9 @@ class _RavenHandler(BaseHTTPRequestHandler):
 
         try:
             index.add(docs)
-        except Exception as e:
-            self._send_json({"error": str(e)}, 500)
+        except Exception:
+            logger.exception("Indexing failed")
+            self._send_json({"error": "Internal server error"}, 500)
             return
 
         self._send_json({"indexed": len(docs), "total": index.count()})

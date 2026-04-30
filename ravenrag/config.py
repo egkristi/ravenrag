@@ -17,19 +17,21 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Known config keys for schema validation
-_KNOWN_KEYS: Dict[str, set] = {
-    "index": {"persist_dir", "collection", "model", "batch_size", "chunk_size", "chunk_overlap", "glob"},
-    "search": {"top_k", "rerank", "rerank_model", "hybrid", "alpha"},
-    "server": {"host", "port", "api_key", "cors_origin"},
-    "watch": {"extensions"},
-}
+
+# Known config keys — auto-derived from dataclass fields
+def _derive_known_keys() -> Dict[str, set]:
+    return {
+        "index": {f.name for f in fields(IndexConfig)},
+        "search": {f.name for f in fields(SearchConfig)},
+        "server": {f.name for f in fields(ServerConfig)},
+        "watch": {"extensions"},
+    }
 
 
 @dataclass
@@ -176,12 +178,13 @@ def load_config(search_dir: Optional[str] = None) -> RavenConfig:
 def _build_config(data: Dict) -> RavenConfig:
     """Build a RavenConfig from parsed TOML data."""
     config = RavenConfig()
+    known_keys = _derive_known_keys()
 
     for section_name in ("index", "search", "server"):
         if section_name not in data:
             continue
         section_obj = getattr(config, section_name)
-        known = _KNOWN_KEYS.get(section_name, set())
+        known = known_keys.get(section_name, set())
         for key, value in data[section_name].items():
             key = key.replace("-", "_")
             if key not in known:
@@ -191,7 +194,7 @@ def _build_config(data: Dict) -> RavenConfig:
                 setattr(section_obj, key, value)
 
     if "watch" in data:
-        known_watch = _KNOWN_KEYS.get("watch", set())
+        known_watch = known_keys.get("watch", set())
         for key in data["watch"]:
             if key.replace("-", "_") not in known_watch:
                 logger.warning("Unknown config key [watch].%s — ignoring (typo?)", key)

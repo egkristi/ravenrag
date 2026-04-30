@@ -41,6 +41,9 @@ class HybridSearcher:
         self.embedder = embedder
         self.alpha = alpha
         self.rrf_k = rrf_k
+        # Cached BM25 state
+        self._bm25 = None
+        self._bm25_doc_count: int = 0
 
     def search(
         self,
@@ -90,24 +93,32 @@ class HybridSearcher:
         # BM25 scoring on filtered set
         if bm25_texts:
             tokenized = [text.lower().split() for text in bm25_texts]
-            bm25 = BM25Okapi(tokenized)
+            # Rebuild BM25 index if document count changed (cache invalidation)
+            current_count = len(bm25_texts)
+            if self._bm25 is None or self._bm25_doc_count != current_count:
+                bm25 = BM25Okapi(tokenized)
+                self._bm25 = bm25
+                self._bm25_doc_count = current_count
+            else:
+                bm25 = self._bm25
             bm25_scores = bm25.get_scores(query.lower().split())
         else:
             bm25_scores = []
 
-        # Vector search
-        query_embedding = self.embedder.encode([query])[0]
-        total = self.store.count()
-        vector_results = self.store.search(
-            query_embedding,
-            top_k=min(total, top_k * 4),
-            where=where,
-        )
-
-        # Vector RRF scores
+        # Vector search — scale fetching by alpha (skip if pure BM25)
         vector_rrf: Dict[str, float] = {}
-        for rank, r in enumerate(vector_results):
-            vector_rrf[r["id"]] = 1.0 / (self.rrf_k + rank + 1)
+        if self.alpha > 0:
+            query_embedding = self.embedder.encode([query])[0]
+            total = self.store.count()
+            # Fetch more candidates for higher alpha; skip entirely if alpha == 0
+            vector_fetch = max(top_k, int(top_k * 4 * self.alpha))
+            vector_results = self.store.search(
+                query_embedding,
+                top_k=min(total, vector_fetch),
+                where=where,
+            )
+            for rank, r in enumerate(vector_results):
+                vector_rrf[r["id"]] = 1.0 / (self.rrf_k + rank + 1)
 
         # BM25 RRF scores
         bm25_ranked = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)

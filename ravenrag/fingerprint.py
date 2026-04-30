@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,3 @@ class FingerprintStore:
     def remove(self, key: str) -> None:
         """Remove a fingerprint entry."""
         self._hashes.pop(key, None)
-
-    def get_doc_ids(self, key: str) -> Optional[List[str]]:
-        """Return doc IDs associated with a file key (not stored here, placeholder)."""
-        return None

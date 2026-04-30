@@ -21,6 +21,8 @@ import logging
 import sys
 from typing import Any
 
+from . import __version__
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +133,7 @@ def run_stdio_server(
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "ravenrag", "version": "0.5.0"},
+                        "serverInfo": {"name": "ravenrag", "version": __version__},
                     },
                     "id": req_id,
                 }

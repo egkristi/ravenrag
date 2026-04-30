@@ -76,8 +76,16 @@ def index(
         typer.echo(f"Skipping {len(unchanged)} unchanged files.")
     if deleted:
         typer.echo(f"Removing {len(deleted)} deleted files from index.")
+        idx_del = DocumentIndex(persist_dir=db, collection_name=col, embedding_model=mdl)
         for key in deleted:
-            # Delete all docs whose source matches this key
+            # Remove documents whose source matches this key
+            all_data = idx_del.store.get_all()
+            for i, meta in enumerate(all_data.get("metadatas") or []):
+                if meta and str(meta.get("source", "")) == key:
+                    try:
+                        idx_del.delete(all_data["ids"][i])
+                    except Exception:
+                        pass
             fp_store.remove(key)
 
     docs = [d for d in docs if d.metadata.get("source") in changed_sources or not d.metadata.get("source")]

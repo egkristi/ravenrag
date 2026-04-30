@@ -5,6 +5,7 @@ DocumentIndex: Core indexing and retrieval logic.
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -13,6 +14,8 @@ from .store import VectorStore
 
 if TYPE_CHECKING:
     from .embed import EmbeddingBackend
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -209,6 +212,7 @@ class DocumentIndex:
                     # Parent not in store (was chunked before indexing), return chunk
                     parent_results.append(best_chunk)
             except Exception:
+                logger.warning("Failed to fetch parent %s, falling back to chunk", parent_id, exc_info=True)
                 parent_results.append(best_chunk)
 
         parent_results.sort(key=lambda r: r.distance)
