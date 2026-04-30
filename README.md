@@ -665,7 +665,6 @@ uv run pytest tests/ -v --cov=ravenrag
 
 | Problem | Solution |
 |---------|----------|
-| `ImportError: tomli` | Install `tomli` or upgrade to Python 3.11+ |
 | Slow first query | Model downloads on first use. Subsequent queries use cache. |
 | `No loaders for .pdf` | `pip install 'ravenrag[loaders]'` |
 | FAISS not found | `pip install 'ravenrag[faiss]'` |

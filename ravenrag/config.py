@@ -86,16 +86,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _parse_toml(path: Path) -> Dict:
-    """Parse a TOML file using tomllib (3.11+) or tomli fallback."""
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
-            raise ImportError(
-                "tomli is required for TOML parsing on Python < 3.11. Install with: pip install tomli"
-            ) from None
+    """Parse a TOML file using tomllib."""
+    import tomllib
 
     return tomllib.loads(path.read_text(encoding="utf-8"))
 

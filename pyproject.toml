@@ -8,7 +8,7 @@ version = "0.6.0"
 description = "Lightweight, local-first RAG for your documents"
 readme = "README.md"
 license = {text = "AGPL-3.0-or-later"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Erling Kristiansen", email = "egkristi@gmail.com"}
 ]
@@ -17,7 +17,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -28,7 +27,6 @@ dependencies = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
     "typer>=0.9.0",
-    "tomli>=1.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
