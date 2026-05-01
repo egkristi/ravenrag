@@ -117,6 +117,84 @@ raven query "test" --verbose
 
 ---
 
+## 🐳 Docker
+
+Run RavenRAG as a container — no Python install required:
+
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/egkristi/ravenrag:main
+
+# Run with persistent data volume
+docker run -d \
+  --name ravenrag \
+  -p 8484:8484 \
+  -v ravenrag-data:/data \
+  ghcr.io/egkristi/ravenrag:main
+
+# With API key authentication
+docker run -d \
+  -p 8484:8484 \
+  -v ravenrag-data:/data \
+  -e RAVENRAG_API_KEY=my-secret \
+  ghcr.io/egkristi/ravenrag:main
+
+# Index local documents (mount your docs directory)
+docker run --rm \
+  -v ravenrag-data:/data \
+  -v ./my-docs:/docs:ro \
+  ghcr.io/egkristi/ravenrag:main \
+  index /docs --glob "**/*.md"
+```
+
+### Kubernetes
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ravenrag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ravenrag
+  template:
+    metadata:
+      labels:
+        app: ravenrag
+    spec:
+      containers:
+        - name: ravenrag
+          image: ghcr.io/egkristi/ravenrag:main
+          ports:
+            - containerPort: 8484
+          env:
+            - name: RAVENRAG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ravenrag-secret
+                  key: api-key
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8484
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8484
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ravenrag-pvc
+```
+
+---
+
 ## 🌐 API Server
 
 Start a local HTTP server that any LLM app can query:
