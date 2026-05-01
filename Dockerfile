@@ -23,7 +23,6 @@ WORKDIR /app
 
 # Copy dependency metadata first (cache-friendly layer)
 COPY pyproject.toml README.md LICENSE ./
-COPY setup.py ./
 COPY ravenrag/ ravenrag/
 
 # Install the package with all extras into a virtual env
