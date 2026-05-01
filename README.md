@@ -22,7 +22,7 @@ No cloud required. No API keys. Just local embeddings, persistent vector storage
 | 🧠 **Semantic splitting** | Split at meaning boundaries, not character counts |
 | 🧩 **Composable** | Mix and match index, store, embedder, reranker |
 | ✂️ **Chunking** | Character, token-aware, and semantic splitting |
-| 📂 **File loaders** | Load .txt, .md, .py and more — with plugin system |
+| 📂 **File loaders** | Load .txt, .md, .pdf, .docx, .pptx, .xlsx, .csv, .rtf, .html — with plugin system |
 | 🏷️ **Metadata filtering** | Filter search results by metadata |
 | 🔀 **Hybrid search** | Vector + BM25 with reciprocal rank fusion |
 | 🎯 **Reranking** | Cross-encoder reranking for precision |
@@ -407,6 +407,10 @@ pip install 'ravenrag[loaders]'
 | `.pdf` | pymupdf4llm | Extracts text as Markdown |
 | `.docx` | python-docx | Extracts paragraphs |
 | `.html` / `.htm` | beautifulsoup4 | Strips tags, extracts text |
+| `.csv` | built-in | Comma-separated values (stdlib) |
+| `.rtf` | striprtf | Rich Text Format |
+| `.pptx` | python-pptx | PowerPoint slide text extraction |
+| `.xlsx` | openpyxl | Excel spreadsheet rows |
 | `.md` / `.markdown` | built-in | Parses YAML frontmatter into metadata |
 
 All built-in loaders auto-register when their dependencies are available.
@@ -624,7 +628,7 @@ pip install 'ravenrag[tokens]'
 # With FAISS backend
 pip install 'ravenrag[faiss]'
 
-# With built-in file loaders (PDF, DOCX, HTML)
+# With built-in file loaders (PDF, DOCX, HTML, RTF, PPTX, XLSX)
 pip install 'ravenrag[loaders]'
 
 # Everything

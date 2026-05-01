@@ -185,6 +185,91 @@ def _try_register_builtin_loaders() -> None:
     except ImportError:
         pass
 
+    # CSV via stdlib (no extra deps)
+    @register_loader(".csv")
+    def _load_csv(path: str, metadata: Optional[Dict] = None) -> Document:
+        import csv
+
+        file_path = Path(path).resolve()
+        with file_path.open(encoding="utf-8") as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+        text = "\n".join(", ".join(row) for row in rows)
+        doc_metadata: Dict = {"source": str(file_path), "filename": file_path.name, "extension": ".csv"}
+        if metadata:
+            doc_metadata.update(metadata)
+        return Document(text=text, metadata=doc_metadata)
+
+    # RTF via striprtf
+    try:
+        from striprtf.striprtf import rtf_to_text  # noqa: F401
+
+        @register_loader(".rtf")
+        def _load_rtf(path: str, metadata: Optional[Dict] = None) -> Document:
+            file_path = Path(path).resolve()
+            raw = file_path.read_text(encoding="utf-8")
+            text = rtf_to_text(raw)
+            doc_metadata: Dict = {"source": str(file_path), "filename": file_path.name, "extension": ".rtf"}
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text=text, metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
+    # PPTX via python-pptx
+    try:
+        from pptx import Presentation  # noqa: F401
+
+        @register_loader(".pptx")
+        def _load_pptx(path: str, metadata: Optional[Dict] = None) -> Document:
+            prs = Presentation(path)
+            texts = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        for paragraph in shape.text_frame.paragraphs:
+                            text = paragraph.text.strip()
+                            if text:
+                                texts.append(text)
+            file_path = Path(path).resolve()
+            doc_metadata: Dict = {"source": str(file_path), "filename": file_path.name, "extension": ".pptx"}
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text="\n\n".join(texts), metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
+    # XLSX via openpyxl
+    try:
+        from openpyxl import load_workbook  # noqa: F401
+
+        @register_loader(".xlsx")
+        def _load_xlsx(path: str, metadata: Optional[Dict] = None) -> Document:
+            wb = load_workbook(path, read_only=True, data_only=True)
+            texts = []
+            for sheet in wb.sheetnames:
+                ws = wb[sheet]
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) if c is not None else "" for c in row]
+                    line = ", ".join(cells).strip(", ")
+                    if line:
+                        texts.append(line)
+            wb.close()
+            file_path = Path(path).resolve()
+            doc_metadata: Dict = {
+                "source": str(file_path),
+                "filename": file_path.name,
+                "extension": ".xlsx",
+            }
+            if metadata:
+                doc_metadata.update(metadata)
+            return Document(text="\n".join(texts), metadata=doc_metadata)
+
+    except ImportError:
+        pass
+
     # Markdown with frontmatter parsing (no extra deps)
     @register_loader(".md")
     @register_loader(".markdown")
